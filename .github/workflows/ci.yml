@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        # Pinned by SHA (supply chain): v7.0.1 (Node 24)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: PHP version
+        run: php -v
+
+      - name: Lint PHP (module, without vendor)
+        run: |
+          find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l > /dev/null
+          echo "Lint OK"
+
+      - name: E-invoice reader tests (fixtures + official KoSIT testsuite)
+        run: bash tests/kosit-testsuite.sh

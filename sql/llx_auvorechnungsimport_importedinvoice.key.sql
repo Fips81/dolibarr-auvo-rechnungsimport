@@ -1,0 +1,4 @@
+ALTER TABLE llx_auvorechnungsimport_importedinvoice ADD UNIQUE INDEX uk_auvorechnungsimport_importedinvoice_ref (ref, entity);
+ALTER TABLE llx_auvorechnungsimport_importedinvoice ADD INDEX idx_auvorechnungsimport_importedinvoice_fk_soc (fk_soc);
+ALTER TABLE llx_auvorechnungsimport_importedinvoice ADD INDEX idx_auvorechnungsimport_importedinvoice_status (status);
+ALTER TABLE llx_auvorechnungsimport_importedinvoice ADD CONSTRAINT fk_auvorechnungsimport_importedinvoice_user_creat FOREIGN KEY (fk_user_creat) REFERENCES llx_user (rowid);

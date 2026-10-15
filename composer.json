@@ -1,0 +1,16 @@
+{
+    "name": "auvo-design/auvorechnungsimport",
+    "description": "Vendor dependency lock for the AuvoRechnungsimport Dolibarr module",
+    "type": "project",
+    "license": "GPL-3.0-or-later",
+    "require": {
+        "php": ">=8.1",
+        "atgp/factur-x": "3.5.0"
+    },
+    "config": {
+        "sort-packages": true,
+        "platform": {
+            "php": "8.1"
+        }
+    }
+}

@@ -1,0 +1,53 @@
+name: Build release ZIP
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-zip:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        # Pinned by SHA (supply chain): checkout v7.0.1 (Node 24)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Tag matches module version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          MODVER=$(grep -oP "\\\$this->version = '\K[^']+" core/modules/modAuvoRechnungsimport.class.php)
+          echo "Tag $VERSION, module $MODVER"
+          test "$VERSION" = "$MODVER"
+
+      - name: Lint PHP
+        run: |
+          find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l > /dev/null
+
+      - name: E-invoice reader tests (fixtures + official KoSIT testsuite)
+        run: bash tests/kosit-testsuite.sh
+
+      - name: Build clean ZIP (root folder auvorechnungsimport/, DoliStore name module_<name>-x.y.z.zip)
+        run: |
+          # DoliStore expects the makepack format module_<name>-x.y(.z).zip
+          # (prefix module_, version WITHOUT the "v" of the tag).
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p /tmp/build/auvorechnungsimport
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.gitignore' \
+            --exclude='.gitattributes' \
+            --exclude='/tests' \
+            ./ /tmp/build/auvorechnungsimport/
+          cd /tmp/build && zip -r "/tmp/module_auvorechnungsimport-${VERSION}.zip" auvorechnungsimport/
+          unzip -l "/tmp/module_auvorechnungsimport-${VERSION}.zip" | head -20
+
+      - name: Attach ZIP to release
+        # softprops/action-gh-release v3.0.3, pinned by SHA (Node 24)
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
+        with:
+          files: /tmp/module_auvorechnungsimport-*.zip
+          fail_on_unmatched_files: true
