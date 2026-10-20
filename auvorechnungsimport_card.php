@@ -55,7 +55,7 @@ if ($object->fetch($id) <= 0) {
 $extracted = $object->getExtractedData();
 $canUpdateBuyprice = $user->hasRight('produit', 'creer') || $user->hasRight('service', 'creer');
 $canCreateOrder = isModEnabled('supplier_order') && $user->hasRight('fournisseur', 'commande', 'creer');
-$canCreateBank = $user->hasRight('societe', 'creer');
+$canCreateBank = $user->hasRight('societe', 'creer');   // also covers creating a supplier
 $canCreateProduct = isModEnabled('variants') && $user->hasRight('produit', 'creer');
 
 /**
@@ -91,6 +91,21 @@ if ($action == 'createinvoice' && $user->hasRight('auvorechnungsimport', 'import
 		accessforbidden('CSRF');
 	}
 	$fkSoc = GETPOSTINT('fk_soc');
+	if (empty($fkSoc) && GETPOSTINT('create_supplier') && $canCreateBank && !empty($extracted['supplier']['name']) && empty($extracted['is_credit_note'])) {
+		// New supplier from the seller data of the e-invoice. Kept even if the
+		// invoice below fails - a second try then finds it.
+		$supplierErrors = array();
+		$fkSoc = auvorechnungsimport_create_supplier($db, $user, $extracted['supplier'], $supplierErrors);
+		if ($fkSoc > 0) {
+			$object->fk_soc = $fkSoc;
+			$object->supplier_match_confidence = 'created';
+			$object->update($user);
+			setEventMessages($langs->trans('AuvoRechnungsimportSupplierCreated', $extracted['supplier']['name']), null, 'mesgs');
+		} else {
+			$fkSoc = 0;
+			setEventMessages($langs->trans('AuvoRechnungsimportErrSupplier'), $supplierErrors, 'errors');
+		}
+	}
 	$refSupplier = GETPOST('ref_supplier', 'alphanohtml');
 	$invoiceDate = GETPOST('invoice_date', 'alpha');
 
@@ -449,6 +464,13 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	print '<table class="border centpercent">';
 	print '<tr><td class="titlefield fieldrequired">'.$langs->trans('ThirdParty').'</td><td>';
 	print $form->select_company($object->fk_soc, 'fk_soc', '(fournisseur:=:1)', 1, 0, 0, array(), 0, 'minwidth300');
+	$newSupplier = $extracted['supplier'] ?? array();
+	if (empty($object->fk_soc) && !empty($newSupplier['name']) && $canCreateBank && empty($extracted['is_credit_note'])) {
+		// Seller data of an e-invoice: offer to create the supplier from it
+		print '<br><label><input type="checkbox" name="create_supplier" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? ' checked' : '').'> '.$langs->trans('AuvoRechnungsimportSupplierCreate').'</label>';
+		print '<div class="opacitymedium small">'.dol_escape_htmltag($newSupplier['name']).', '.dol_escape_htmltag(trim($newSupplier['zip'].' '.$newSupplier['town'].' '.$newSupplier['country']));
+		print ($newSupplier['vat'] !== '' ? ', '.dol_escape_htmltag($newSupplier['vat']) : '').'</div>';
+	}
 	print '</td></tr>';
 	print '<tr><td>'.$langs->trans('RefSupplier').'</td><td><input type="text" name="ref_supplier" class="minwidth200" value="'.dol_escape_htmltag($extracted['invoice_ref'] ?? '').'">';
 	$existingInvoice = auvorechnungsimport_find_existing_invoice($db, (int) $object->fk_soc, (string) ($extracted['invoice_ref'] ?? ''));

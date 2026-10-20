@@ -2345,3 +2345,49 @@ function auvorechnungsimport_header_labels($langs)
 		'terms' => $langs->transnoentities('AuvoRechnungsimportViewPaymentTerms'),
 	);
 }
+
+/**
+ * Creates a supplier from the seller data of an e-invoice. Looks for an
+ * existing one first (same matching as the import) so that nothing is
+ * duplicated.
+ *
+ * @param DoliDB $db
+ * @param User $user
+ * @param array<string,string> $details auvorechnungsimport_seller_details()
+ * @param string[] $errors Error messages
+ * @return int Thirdparty id (existing or new), <=0 on error
+ */
+function auvorechnungsimport_create_supplier($db, $user, $details, &$errors)
+{
+	require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+	if (($details['name'] ?? '') === '') {
+		$errors[] = 'Name';
+		return -1;
+	}
+	list($existing) = auvorechnungsimport_match_supplier($db, $details['vat'] ?? '', $details['name'], $details['tax_id'] ?? '');
+	if ($existing) {
+		return (int) $existing;
+	}
+	$soc = new Societe($db);
+	$soc->name = $details['name'];
+	$soc->client = 0;
+	$soc->fournisseur = 1;
+	$soc->code_fournisseur = -1;
+	$soc->address = $details['address'];
+	$soc->zip = $details['zip'];
+	$soc->town = $details['town'];
+	$soc->email = $details['email'];
+	$soc->phone = $details['phone'];
+	$soc->tva_intra = $details['vat'];
+	$soc->idprof1 = $details['tax_id'] !== '' ? $details['tax_id'] : $details['legal_id'];
+	if ($details['country'] !== '') {
+		$soc->country_code = $details['country'];
+		$soc->country_id = (int) getCountry($details['country'], '3');
+	}
+	$soc->tva_assuj = $details['vat'] !== '' ? 1 : 0;
+	$id = $soc->create($user);
+	if ($id <= 0) {
+		$errors = array_merge($errors, $soc->errors ? $soc->errors : array($soc->error));
+	}
+	return $id;
+}

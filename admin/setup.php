@@ -66,7 +66,7 @@ foreach (array('AUVORECHNUNGSIMPORT_KEYWORDS_COST' => 'AuvoRechnungsimportKeywor
 }
 
 print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportAutocreateSupplier').'</td><td>';
-print '<input type="checkbox" name="AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? ' checked' : '').' disabled> <span class="opacitymedium">('.$langs->trans('AuvoRechnungsimportNotYetImplemented').')</span>';
+print '<input type="checkbox" name="AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? ' checked' : '').'> <span class="opacitymedium">'.$langs->trans('AuvoRechnungsimportAutocreateSupplierHelp').'</span>';
 print '</td></tr>';
 
 print '</table></div>';

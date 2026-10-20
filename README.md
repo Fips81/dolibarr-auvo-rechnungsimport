@@ -205,9 +205,14 @@ einmal):
   Preiszeile aktualisiert bzw. angelegt; Staffelpreise bleiben unberührt.
 - Positionen werden **nur nach Prüfung** im Formular angelegt. Weicht die Summe
   vom Rechnungsbetrag ab, gibt es eine Warnung.
-- Automatisches Anlegen unbekannter Lieferanten ist vorbereitet
-  (`AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER`), aber noch nicht implementiert –
-  aktuell muss immer ein bestehender Lieferant gewählt werden.
+- **Unbekannte Lieferanten** lassen sich bei E-Rechnungen (XML, ZUGFeRD) aus den
+  Verkäuferdaten neu anlegen: Im Prüfformular erscheint die Checkbox „Lieferant
+  neu anlegen“ (Name, Adresse, Land, USt-ID, Steuernummer bzw. SIREN, E-Mail,
+  Telefon). Vorher wird noch einmal nach einem vorhandenen Lieferanten gesucht,
+  damit nichts doppelt entsteht. Die Einstellung `AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER`
+  wählt die Checkbox vor. Angelegt wird immer erst beim Absenden des Formulars
+  (Recht „Dritte anlegen“ nötig). Bei Text-/OCR-Importen und Gutschriften
+  gibt es das nicht – die Daten sind dort zu unsicher.
 - **Mehrfach-Upload mit Hintergrundanalyse**: Beliebig viele PDFs und XML-Dateien
   auf einmal hochladen (Server-Grenzen `max_file_uploads`, `upload_max_filesize`,
   `post_max_size` werden im Formular angezeigt). Die Dateien werden nur
@@ -266,6 +271,8 @@ jedes Modul bleibt einzeln installier- und entfernbar.
 - Neu: Kopfdaten aus der E-Rechnung werden in die Lieferantenrechnung übernommen
   (Fälligkeit, Zahlungsart, Zahlungsbedingung, Referenzen und Leistungszeitraum
   als Notiz); IBAN optional als Bankkonto des Lieferanten.
+- Neu: Unbekannte Lieferanten aus den Verkäuferdaten der E-Rechnung anlegen
+  (Checkbox im Prüfformular, vorher erneute Dublettensuche).
 
 ### 0.3.0 (Oktober 2026)
 

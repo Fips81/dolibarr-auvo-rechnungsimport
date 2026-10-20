@@ -41,7 +41,7 @@ AuvoRechnungsimportOcrLangs=OCR-Sprachen (Tesseract)
 AuvoRechnungsimportOcrLangsHelp=z.B. deu+fra+eng - nur relevant für gescannte PDFs ohne Textlayer
 AuvoRechnungsimportOcrMaxPages=OCR: maximale Seitenzahl
 AuvoRechnungsimportOcrMaxPagesHelp=Nur für gescannte PDFs. Positionen über mehrere Seiten werden nur bis zu dieser Seite erkannt; jede Seite kostet einige Sekunden beim Upload.
-AuvoRechnungsimportAutocreateSupplier=Unbekannten Lieferanten automatisch anlegen
+AuvoRechnungsimportAutocreateSupplier=Lieferant neu anlegen vorauswählen
 AuvoRechnungsimportNotYetImplemented=noch nicht implementiert - bitte Lieferant manuell auswählen
 
 AuvoRechnungsimportLinesTitle=Erkannte Positionen
@@ -224,3 +224,7 @@ AuvoRechnungsimportViewPaymentTerms=Zahlungsbedingung
 AuvoRechnungsimportBankKnown=beim Lieferanten bereits vorhanden
 AuvoRechnungsimportBankCreate=als Bankkonto des Lieferanten anlegen
 AuvoRechnungsimportErrBank=Das Bankkonto konnte nicht beim Lieferanten angelegt werden.
+AuvoRechnungsimportAutocreateSupplierHelp=Vorauswahl der Checkbox „Lieferant neu anlegen“ im Prüfformular (nur bei E-Rechnungen mit Verkäuferdaten). Angelegt wird erst beim Absenden.
+AuvoRechnungsimportSupplierCreate=Lieferant aus den Verkäuferdaten der E-Rechnung neu anlegen
+AuvoRechnungsimportSupplierCreated=Lieferant „%s“ wurde neu angelegt.
+AuvoRechnungsimportErrSupplier=Der Lieferant konnte nicht angelegt werden.

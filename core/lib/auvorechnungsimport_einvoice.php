@@ -628,6 +628,7 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 		// Some sellers only give a tax number (Steuernummer, SIREN), no VAT ID.
 		'supplier_vat' => auvorechnungsimport_normalize_vat($vat !== '' ? $vat : (string) ($seller['tax_id'] ?? '')),
 		'supplier_tax_id' => (string) ($seller['tax_id'] ?? ''),
+		'supplier' => auvorechnungsimport_seller_details($seller),
 		'invoice_ref' => $inv['document']['id'],
 		'invoice_date' => $inv['document']['issue_date'] !== '' ? $inv['document']['issue_date'] : null,
 		'due_date' => $inv['document']['due_date'],
@@ -701,4 +702,29 @@ function auvorechnungsimport_header_note($fields, $labels)
 		$out[] = $labels['terms'].': '.str_replace("\n", ' / ', trim($fields['payment_terms']));
 	}
 	return implode("\n", $out);
+}
+
+/**
+ * Master data of the seller (BG-4) for creating a new supplier in Dolibarr.
+ *
+ * @param array<string,mixed> $seller Seller as parsed
+ * @return array<string,string>
+ */
+function auvorechnungsimport_seller_details($seller)
+{
+	$a = $seller['address'] ?? array();
+	$street = array_filter(array_map('trim', array((string) ($a['line1'] ?? ''), (string) ($a['line2'] ?? ''), (string) ($a['line3'] ?? ''))), 'strlen');
+	$contact = $seller['contact'] ?? array();
+	return array(
+		'name' => trim((string) ($seller['name'] ?? '')),
+		'address' => implode("\n", $street),
+		'zip' => trim((string) ($a['postcode'] ?? '')),
+		'town' => trim((string) ($a['city'] ?? '')),
+		'country' => strtoupper(trim((string) ($a['country'] ?? ''))),
+		'email' => trim((string) ($contact['email'] ?? '')),
+		'phone' => trim((string) ($contact['phone'] ?? '')),
+		'vat' => auvorechnungsimport_normalize_vat((string) ($seller['vat_id'] ?? '')),
+		'tax_id' => trim((string) ($seller['tax_id'] ?? '')),
+		'legal_id' => trim((string) ($seller['legal_id'] ?? '')),
+	);
 }

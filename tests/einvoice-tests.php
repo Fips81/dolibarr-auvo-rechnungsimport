@@ -188,6 +188,17 @@ check(strpos($note, "\n") !== false && strpos($note, 'Terms: Zahlbar innerhalb 1
 eq('', auvorechnungsimport_header_note(array(), $labels), 'empty fields give no note');
 eq('Period: 2026-05-01', auvorechnungsimport_header_note(array('period_start' => '2026-05-01', 'period_end' => '2026-05-01'), $labels), 'one-day period is shown once');
 
+// Seller master data for creating a supplier
+$sd = $std['supplier'];
+check($sd['name'] !== '', 'seller name');
+check($sd['zip'] !== '' && $sd['town'] !== '' && strlen($sd['country']) === 2, 'seller address and country code');
+eq($sd['vat'], auvorechnungsimport_normalize_vat($sd['vat']), 'seller VAT ID is normalized');
+foreach (array('name', 'address', 'zip', 'town', 'country', 'email', 'phone', 'vat') as $k) {
+	eq($sd[$k], $cii['supplier'][$k], 'CII and UBL give the same seller '.$k);
+}
+eq('HRB 12345', $sd['legal_id'], 'seller registration number (UBL)');
+eq('', auvorechnungsimport_seller_details(array())['name'], 'no seller gives empty details');
+
 echo "Passed: $passed\nFailed: ".count($failures)."\n";
 foreach ($failures as $f) {
 	echo "  - $f\n";

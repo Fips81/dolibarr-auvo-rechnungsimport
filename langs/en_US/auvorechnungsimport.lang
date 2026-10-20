@@ -41,7 +41,7 @@ AuvoRechnungsimportOcrLangs=OCR languages (Tesseract)
 AuvoRechnungsimportOcrLangsHelp=e.g. deu+fra+eng - only relevant for scanned PDFs without a text layer
 AuvoRechnungsimportOcrMaxPages=OCR: maximum number of pages
 AuvoRechnungsimportOcrMaxPagesHelp=Only for scanned PDFs. Lines spanning several pages are only detected up to this page; each page adds a few seconds to the upload.
-AuvoRechnungsimportAutocreateSupplier=Automatically create unknown suppliers
+AuvoRechnungsimportAutocreateSupplier=Preselect creating unknown suppliers
 AuvoRechnungsimportNotYetImplemented=not yet implemented - please pick the supplier manually
 
 AuvoRechnungsimportLinesTitle=Detected lines
@@ -224,3 +224,7 @@ AuvoRechnungsimportViewPaymentTerms=Payment terms
 AuvoRechnungsimportBankKnown=already on file for the supplier
 AuvoRechnungsimportBankCreate=add as bank account of the supplier
 AuvoRechnungsimportErrBank=The bank account could not be added to the supplier.
+AuvoRechnungsimportAutocreateSupplierHelp=Preselects the "Create new supplier" checkbox in the review form (only for e-invoices with seller data). The supplier is created when you submit.
+AuvoRechnungsimportSupplierCreate=Create a new supplier from the seller data of the e-invoice
+AuvoRechnungsimportSupplierCreated=Supplier "%s" was created.
+AuvoRechnungsimportErrSupplier=The supplier could not be created.
