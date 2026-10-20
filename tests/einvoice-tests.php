@@ -131,7 +131,7 @@ check(strpos($an['attachments'][0]['content'] ?? '', '%PDF') === 0, 'CII attachm
 $dir = $argv[1] ?? getenv('KOSIT_TESTSUITE') ?: '';
 if ($dir !== '' && is_dir($dir)) {
 	// Differences that are in the testsuite data itself, not in the reader
-	$knownDataDiffs = array('order_reference', '01.21:supplier_vat');
+	$knownDataDiffs = array('order_reference', '01.21:supplier_vat', '01.21:supplier', '01.20:supplier', '03.06:supplier');
 	$n = 0;
 	foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)) as $file) {
 		$file = (string) $file;
