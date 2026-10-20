@@ -234,3 +234,4 @@ AuvoRechnungsimportCreditSourceNotFound=The credit note refers to invoice %s - i
 AuvoRechnungsimportErrCreditNeedsSource=Please choose the original invoice of the credit note. If it is not in Dolibarr yet, import and validate that invoice first.
 AuvoRechnungsimportErrCreditSource=The chosen original invoice does not belong to this supplier or is not validated.
 AuvoRechnungsimportErrCreditNegativeLine=The credit note has lines with a negative amount (an allowance inside the credit note). Dolibarr cannot represent that on credit notes - skip the line or record the credit note by hand.
+AuvoRechnungsimportMatchBuyerRef=Our article number

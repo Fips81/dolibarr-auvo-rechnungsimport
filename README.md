@@ -124,6 +124,12 @@ einmal):
   wird nie ersetzt). Bestell-, Vertrags- und Käuferreferenz, Verwendungszweck,
   Leistungszeitraum und Zahlungsbedingungstext (inkl. Skonto) stehen in der
   privaten Notiz.
+- **Artikelzuordnung** bei E-Rechnungen, in dieser Reihenfolge: Lieferanten-Artikelnummer
+  (BT-155) aus den Einkaufspreisen, gelernte Zuordnung, GTIN/EAN (BT-157, auch als
+  GTIN-14 mit führender Null; Barcode des Artikels, dann der Barcode im
+  Lieferantenpreis), unsere eigene Artikelnummer (BT-156) als Artikelreferenz.
+  Die **Einheit** (BT-130, z. B. HUR, KGM) wird in die Dolibarr-Einheit der Zeile
+  übernommen, wenn „Einheiten“ in den Produkteinstellungen aktiv ist.
 - **Gutschriften** (Typ 381, UBL CreditNote) werden als Lieferanten-Gutschrift angelegt.
   Im Prüfformular wählt man die Ursprungsrechnung; steht ihre Nummer in der
   Gutschrift (BT-25), ist sie vorausgewählt. Zur Auswahl stehen die validierten
@@ -281,6 +287,9 @@ jedes Modul bleibt einzeln installier- und entfernbar.
   (Checkbox im Prüfformular, vorher erneute Dublettensuche).
 - Neu: Gutschriften werden als Lieferanten-Gutschrift zur gewählten Ursprungsrechnung
   angelegt (BT-25 wird vorausgewählt).
+- Neu: Artikelzuordnung über GTIN (auch mit führender Null, auch Lieferanten-Barcode) und
+  die eigene Artikelnummer des Käufers (BT-156); Einheiten (BT-130) werden in die
+  Zeilen übernommen.
 
 ### 0.3.0 (Oktober 2026)
 

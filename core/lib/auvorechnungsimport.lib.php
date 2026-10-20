@@ -668,12 +668,31 @@ function auvorechnungsimport_match_lines($db, $fkSoc, $lines)
 			}
 		}
 
-		if (!$fkProduct && !empty($line['gtin'])) {
+		// GTIN (BT-157): compared without leading zeros (EAN-13 vs. GTIN-14), in the
+		// product's own barcode first, then in the supplier's barcode of its prices.
+		$gtin = ltrim(preg_replace('/\D/', '', (string) ($line['gtin'] ?? '')), '0');
+		if (!$fkProduct && $gtin !== '') {
 			$sql = "SELECT rowid as fk_product FROM ".MAIN_DB_PREFIX."product";
-			$sql .= " WHERE barcode = '".$db->escape($line['gtin'])."'";
+			$sql .= " WHERE TRIM(LEADING '0' FROM barcode) = '".$db->escape($gtin)."'";
 			$sql .= " AND entity IN (".getEntity('product').")";
 			$fkProduct = $uniqueProduct($sql);
 			$source = 'barcode';
+			if (!$fkProduct && $fkSoc > 0) {
+				$sql = "SELECT DISTINCT pfp.fk_product FROM ".MAIN_DB_PREFIX."product_fournisseur_price as pfp";
+				$sql .= " WHERE pfp.fk_soc = ".((int) $fkSoc)." AND TRIM(LEADING '0' FROM pfp.barcode) = '".$db->escape($gtin)."'";
+				$sql .= " AND pfp.entity IN (".getEntity('productsupplierprice').")";
+				$fkProduct = $uniqueProduct($sql);
+			}
+		}
+
+		// Our own article number (BT-156), if the buyer gave one on the order
+		$buyerRef = trim((string) ($line['buyer_item_id'] ?? ''));
+		if (!$fkProduct && $buyerRef !== '') {
+			$sql = "SELECT rowid as fk_product FROM ".MAIN_DB_PREFIX."product";
+			$sql .= " WHERE ref = '".$db->escape($buyerRef)."'";
+			$sql .= " AND entity IN (".getEntity('product').")";
+			$fkProduct = $uniqueProduct($sql);
+			$source = 'buyer_ref';
 		}
 
 		if (!$fkProduct && $ref !== '') {
@@ -2434,4 +2453,26 @@ function auvorechnungsimport_is_source_invoice($db, $fkSoc, $invoiceId)
 	$resql = $db->query("SELECT rowid FROM ".MAIN_DB_PREFIX."facture_fourn WHERE rowid = ".((int) $invoiceId)." AND fk_soc = ".((int) $fkSoc)
 		." AND type = 0 AND fk_statut >= 1 AND entity IN (".getEntity('facture_fourn').")");
 	return $resql && $db->num_rows($resql) > 0;
+}
+
+/**
+ * Id of the Dolibarr unit (llx_c_units) for a UN/ECE unit code, or null.
+ *
+ * @param DoliDB $db
+ * @param string $uneceCode e.g. HUR
+ * @return int|null
+ */
+function auvorechnungsimport_unit_id($db, $uneceCode)
+{
+	static $cache = array();
+	$code = auvorechnungsimport_unit_code_to_dolibarr($uneceCode);
+	if ($code === '') {
+		return null;
+	}
+	if (!array_key_exists($code, $cache)) {
+		$resql = $db->query("SELECT rowid FROM ".MAIN_DB_PREFIX."c_units WHERE code = '".$db->escape($code)."' AND active = 1");
+		$obj = $resql ? $db->fetch_object($resql) : null;
+		$cache[$code] = $obj ? (int) $obj->rowid : null;
+	}
+	return $cache[$code];
 }

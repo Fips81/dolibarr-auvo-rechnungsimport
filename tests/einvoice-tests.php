@@ -205,6 +205,16 @@ check(!empty($gs['is_credit_note']), 'credit note is flagged');
 eq('RE2026-0700', $gs['preceding_invoices'][0]['ref'] ?? null, 'credit note names the original invoice in the review fields');
 check(lines_sum($gs) > 0, 'credit note lines are positive');
 
+// Units (BT-130) -> Dolibarr units, buyer article number (BT-156)
+eq('H', auvorechnungsimport_unit_code_to_dolibarr('HUR'), 'HUR -> H');
+eq('P', auvorechnungsimport_unit_code_to_dolibarr('C62'), 'C62 -> P');
+eq('P', auvorechnungsimport_unit_code_to_dolibarr('h87'), 'H87 -> P (lower case)');
+eq('MO', auvorechnungsimport_unit_code_to_dolibarr('MON'), 'MON -> MO (month)');
+eq('KG', auvorechnungsimport_unit_code_to_dolibarr('KGM'), 'KGM -> KG');
+eq('', auvorechnungsimport_unit_code_to_dolibarr('XYZ'), 'unknown unit -> none');
+eq('', auvorechnungsimport_unit_code_to_dolibarr(''), 'empty unit -> none');
+check(array_key_exists('buyer_item_id', $std['lines'][0]), 'review lines carry the buyer article number');
+
 echo "Passed: $passed\nFailed: ".count($failures)."\n";
 foreach ($failures as $f) {
 	echo "  - $f\n";

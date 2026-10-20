@@ -234,3 +234,4 @@ AuvoRechnungsimportCreditSourceNotFound=Die Gutschrift nennt die Rechnung %s - s
 AuvoRechnungsimportErrCreditNeedsSource=Bitte die Ursprungsrechnung der Gutschrift wählen. Ist sie noch nicht in Dolibarr, zuerst diese Rechnung importieren und validieren.
 AuvoRechnungsimportErrCreditSource=Die gewählte Ursprungsrechnung gehört nicht zu diesem Lieferanten oder ist nicht validiert.
 AuvoRechnungsimportErrCreditNegativeLine=Die Gutschrift enthält Positionen mit negativem Betrag (Nachlass innerhalb der Gutschrift). Das kann Dolibarr bei Gutschriften nicht abbilden - bitte die Position überspringen oder die Gutschrift in Dolibarr von Hand erfassen.
+AuvoRechnungsimportMatchBuyerRef=Unsere Artikelnummer

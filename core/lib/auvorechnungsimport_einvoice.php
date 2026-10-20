@@ -585,6 +585,7 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 		$lines[] = array(
 			'source' => 'line',
 			'ref_supplier' => (string) $l['seller_item_id'],
+			'buyer_item_id' => (string) $l['buyer_item_id'],
 			'gtin' => (string) $l['gtin'],
 			'label' => $l['name'] !== '' ? $l['name'] : $l['description'],
 			'qty' => $qty,
@@ -728,4 +729,25 @@ function auvorechnungsimport_seller_details($seller)
 		'tax_id' => trim((string) ($seller['tax_id'] ?? '')),
 		'legal_id' => trim((string) ($seller['legal_id'] ?? '')),
 	);
+}
+
+/**
+ * Dolibarr unit code (llx_c_units.code) for a UN/ECE Recommendation 20 unit
+ * (BT-130) - the reverse of the export's mapping in AuVo E-Rechnung.
+ *
+ * @param string $code e.g. HUR
+ * @return string c_units code (e.g. H) or '' if Dolibarr has no such unit
+ */
+function auvorechnungsimport_unit_code_to_dolibarr($code)
+{
+	static $map = array(
+		'TNE' => 'T', 'KGM' => 'KG', 'GRM' => 'G', 'MGM' => 'MG', 'ONZ' => 'OZ', 'LBR' => 'LB',
+		'MTR' => 'M', 'DMT' => 'DM', 'CMT' => 'CM', 'MMT' => 'MM', 'FOT' => 'FT', 'INH' => 'IN',
+		'MTK' => 'M2', 'DMK' => 'DM2', 'CMK' => 'CM2', 'MMK' => 'MM2', 'FTK' => 'FT2', 'INK' => 'IN2',
+		'MTQ' => 'M3', 'DMQ' => 'DM3', 'CMQ' => 'CM3', 'MMQ' => 'MM3', 'FTQ' => 'FT3', 'INQ' => 'IN3',
+		'OZA' => 'OZ3', 'LTR' => 'L', 'GLL' => 'GAL',
+		'C62' => 'P', 'H87' => 'P', 'EA' => 'P', 'SET' => 'SET',
+		'SEC' => 'S', 'MIN' => 'MI', 'HUR' => 'H', 'DAY' => 'D', 'WEE' => 'W', 'MON' => 'MO', 'ANN' => 'Y',
+	);
+	return $map[strtoupper(trim((string) $code))] ?? '';
 }

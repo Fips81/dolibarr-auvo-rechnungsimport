@@ -232,7 +232,9 @@ if ($action == 'createinvoice' && $user->hasRight('auvorechnungsimport', 'import
 				$pu = -$pu;
 				$qty = -$qty;
 			}
-			$resline = $invoice->addline($line['label'], $pu, $line['vat_rate'], 0, 0, $qty, $fkProduct, 0, '', '', 0, 0, (($line['price_base'] ?? 'HT') === 'TTC' ? 'TTC' : 'HT'), $type, -1, 1, array(), null, 0, 0, (string) ($line['ref_supplier'] ?? ''));
+			// Unit of measure (BT-130) - only where Dolibarr uses units
+			$fkUnit = getDolGlobalInt('PRODUCT_USE_UNITS') ? auvorechnungsimport_unit_id($db, (string) ($line['unit_code'] ?? '')) : null;
+			$resline = $invoice->addline($line['label'], $pu, $line['vat_rate'], 0, 0, $qty, $fkProduct, 0, '', '', 0, 0, (($line['price_base'] ?? 'HT') === 'TTC' ? 'TTC' : 'HT'), $type, -1, 1, array(), $fkUnit, 0, 0, (string) ($line['ref_supplier'] ?? ''));
 			if ($resline <= 0) {
 				$result = -1;
 				break;
@@ -565,6 +567,7 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 			'learned_ref' => array('AuvoRechnungsimportMatchLearned', 'status4'),
 			'learned_label' => array('AuvoRechnungsimportMatchLearned', 'status4'),
 			'barcode' => array('AuvoRechnungsimportMatchBarcode', 'status4'),
+			'buyer_ref' => array('AuvoRechnungsimportMatchBuyerRef', 'status4'),
 			'variant' => array('AuvoRechnungsimportMatchVariant', 'status4'),
 			'suggest_ref' => array('AuvoRechnungsimportMatchSuggest', 'status1'),
 			'suggest_label' => array('AuvoRechnungsimportMatchSuggest', 'status1'),
@@ -630,7 +633,7 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 			}
 			print '</td>';
 			print '<td><input type="text" name="line_label_'.$i.'" class="minwidth200 maxwidth300 widthcentpercentminusx" value="'.dol_escape_htmltag($line['label'] ?? '').'"></td>';
-			print '<td class="right"><input type="text" name="line_qty_'.$i.'" class="width50 right" value="'.dol_escape_htmltag(price2num($line['qty'] ?? 1)).'"></td>';
+			print '<td class="right"><input type="text" name="line_qty_'.$i.'" class="width50 right" value="'.dol_escape_htmltag(price2num($line['qty'] ?? 1)).'">'.(!empty($line['unit_code']) && $line['unit_code'] !== 'C62' ? '<br><span class="opacitymedium small">'.dol_escape_htmltag($line['unit_code']).'</span>' : '').'</td>';
 			print '<td class="right"><input type="text" name="line_price_'.$i.'" class="width75 right" value="'.dol_escape_htmltag($line['price'] !== null ? price($line['price'], 0, '', 0, -1, -1) : '').'"></td>';
 			$vatRate = $line['vat_rate'];
 			if ($vatRate === null && $supplierForVat) {
