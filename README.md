@@ -124,9 +124,15 @@ einmal):
   wird nie ersetzt). Bestell-, Vertrags- und Käuferreferenz, Verwendungszweck,
   Leistungszeitraum und Zahlungsbedingungstext (inkl. Skonto) stehen in der
   privaten Notiz.
-- **Gutschriften** werden erkannt und angezeigt, aber noch nicht automatisch
-  als Lieferanten-Gutschrift angelegt (Dolibarr braucht dafür die
-  Ursprungsrechnung).
+- **Gutschriften** (Typ 381, UBL CreditNote) werden als Lieferanten-Gutschrift angelegt.
+  Im Prüfformular wählt man die Ursprungsrechnung; steht ihre Nummer in der
+  Gutschrift (BT-25), ist sie vorausgewählt. Zur Auswahl stehen die validierten
+  Rechnungen des Lieferanten. Ohne Ursprungsrechnung geht es nur, wenn Dolibarr
+  eigenständige Gutschriften erlaubt (`INVOICE_CREDIT_NOTE_STANDALONE`). Die
+  Beträge bleiben positiv, Dolibarr führt sie negativ. Positionen mit negativem
+  Betrag (Nachlass innerhalb der Gutschrift) lassen sich nicht abbilden und
+  blockieren das Anlegen, bis sie übersprungen werden. Einkaufspreise und
+  Wareneingangs-Bestellung gibt es bei Gutschriften nicht.
 - **Keine Prüfung** gegen die Geschäftsregeln: das Modul liest, was die
   Rechnung enthält. Für eine Formalprüfung den KoSIT-Validator nutzen.
 
@@ -273,6 +279,8 @@ jedes Modul bleibt einzeln installier- und entfernbar.
   als Notiz); IBAN optional als Bankkonto des Lieferanten.
 - Neu: Unbekannte Lieferanten aus den Verkäuferdaten der E-Rechnung anlegen
   (Checkbox im Prüfformular, vorher erneute Dublettensuche).
+- Neu: Gutschriften werden als Lieferanten-Gutschrift zur gewählten Ursprungsrechnung
+  angelegt (BT-25 wird vorausgewählt).
 
 ### 0.3.0 (Oktober 2026)
 

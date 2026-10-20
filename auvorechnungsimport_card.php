@@ -91,7 +91,7 @@ if ($action == 'createinvoice' && $user->hasRight('auvorechnungsimport', 'import
 		accessforbidden('CSRF');
 	}
 	$fkSoc = GETPOSTINT('fk_soc');
-	if (empty($fkSoc) && GETPOSTINT('create_supplier') && $canCreateBank && !empty($extracted['supplier']['name']) && empty($extracted['is_credit_note'])) {
+	if (empty($fkSoc) && GETPOSTINT('create_supplier') && $canCreateBank && !empty($extracted['supplier']['name'])) {
 		// New supplier from the seller data of the e-invoice. Kept even if the
 		// invoice below fails - a second try then finds it.
 		$supplierErrors = array();
@@ -110,10 +110,28 @@ if ($action == 'createinvoice' && $user->hasRight('auvorechnungsimport', 'import
 	$invoiceDate = GETPOST('invoice_date', 'alpha');
 
 	$existingInvoice = auvorechnungsimport_find_existing_invoice($db, $fkSoc, $refSupplier);
-	if (!empty($extracted['is_credit_note'])) {
-		// A supplier credit note needs the original invoice in Dolibarr - it is
-		// not created as an ordinary invoice with positive amounts.
-		setEventMessages($langs->trans('AuvoRechnungsimportErrCreditNote'), null, 'errors');
+	$isCreditNote = !empty($extracted['is_credit_note']);
+	$sourceId = $isCreditNote ? GETPOSTINT('fac_avoir') : 0;
+	$creditNoteError = '';
+	if ($isCreditNote) {
+		// A credit note corrects an invoice of the same supplier (Dolibarr: fk_facture_source).
+		// Its lines are positive; Dolibarr stores them negated. A negative line (an
+		// allowance inside a credit note) cannot be represented that way.
+		if ($sourceId > 0 && !auvorechnungsimport_is_source_invoice($db, $fkSoc, $sourceId)) {
+			$creditNoteError = 'AuvoRechnungsimportErrCreditSource';
+		} elseif ($sourceId <= 0 && !getDolGlobalString('INVOICE_CREDIT_NOTE_STANDALONE')) {
+			$creditNoteError = 'AuvoRechnungsimportErrCreditNeedsSource';
+		} else {
+			foreach (isset($extracted['lines']) && is_array($extracted['lines']) ? $extracted['lines'] : array() as $i => $l) {
+				if (GETPOST('line_mode_'.$i, 'aZ09') !== 'skip' && ((float) price2num(GETPOST('line_qty_'.$i, 'alpha')) * (float) price2num(GETPOST('line_price_'.$i, 'alpha'), 'MU')) < 0) {
+					$creditNoteError = 'AuvoRechnungsimportErrCreditNegativeLine';
+					break;
+				}
+			}
+		}
+	}
+	if ($creditNoteError !== '') {
+		setEventMessages($langs->trans($creditNoteError), null, 'errors');
 	} elseif (empty($fkSoc)) {
 		setEventMessages($langs->trans('AuvoRechnungsimportErrNoSupplier'), null, 'errors');
 	} elseif ($existingInvoice) {
@@ -125,7 +143,8 @@ if ($action == 'createinvoice' && $user->hasRight('auvorechnungsimport', 'import
 		$invoice->socid = $fkSoc;
 		$invoice->ref_supplier = $refSupplier;
 		$invoice->date = $invoiceDate ? dol_stringtotime($invoiceDate) : dol_now();
-		$invoice->type = FactureFournisseur::TYPE_STANDARD;
+		$invoice->type = $isCreditNote ? FactureFournisseur::TYPE_CREDIT_NOTE : FactureFournisseur::TYPE_STANDARD;
+		$invoice->fk_facture_source = $sourceId > 0 ? $sourceId : '';
 		$invoice->fk_project = 0;
 		$invoice->note_private = $langs->trans('AuvoRechnungsimportCreatedFrom', $object->ref);
 		$headerNote = auvorechnungsimport_header_note($extracted, auvorechnungsimport_header_labels($langs));
@@ -150,7 +169,7 @@ if ($action == 'createinvoice' && $user->hasRight('auvorechnungsimport', 'import
 		// Invoice lines: everything the user ticked in the review table, with the
 		// values as corrected there. The chosen product is learned for next time.
 		$extractedLines = isset($extracted['lines']) && is_array($extracted['lines']) ? $extracted['lines'] : array();
-		$updateBuyprice = GETPOSTINT('update_buyprice') && $canUpdateBuyprice;
+		$updateBuyprice = GETPOSTINT('update_buyprice') && $canUpdateBuyprice && !$isCreditNote;
 		$productTypes = array();
 		$createdVariants = array();
 		foreach ($extractedLines as $i => $line) {
@@ -245,8 +264,8 @@ if ($action == 'createinvoice' && $user->hasRight('auvorechnungsimport', 'import
 			// drift per few lines.
 			$tolerance = max(0.02, 0.0025 * count($extractedLines));
 			if (!empty($extracted['amount_ttc']) && $invoice->fetch($invoice->id) > 0
-				&& abs((float) $invoice->total_ttc - (float) $extracted['amount_ttc']) > $tolerance && (float) $invoice->total_ttc != 0) {
-				setEventMessages($langs->trans('AuvoRechnungsimportWarnTotalMismatch', price($invoice->total_ttc), price($extracted['amount_ttc'])), null, 'warnings');
+				&& abs(abs((float) $invoice->total_ttc) - abs((float) $extracted['amount_ttc'])) > $tolerance && (float) $invoice->total_ttc != 0) {
+				setEventMessages($langs->trans('AuvoRechnungsimportWarnTotalMismatch', price(abs($invoice->total_ttc)), price(abs($extracted['amount_ttc']))), null, 'warnings');
 			}
 
 			if (!empty($createdVariants)) {
@@ -261,7 +280,7 @@ if ($action == 'createinvoice' && $user->hasRight('auvorechnungsimport', 'import
 			if ($resultupdate > 0) {
 				$db->commit();
 				// After the commit: a failing order must not take the invoice with it.
-				if (GETPOSTINT('create_order') && $canCreateOrder && $invoice->fetch($invoice->id) > 0) {
+				if (GETPOSTINT('create_order') && $canCreateOrder && !$isCreditNote && $invoice->fetch($invoice->id) > 0) {
 					auvorechnungsimport_card_create_order($db, $user, $langs, $invoice, $extracted);
 				}
 				$nextId = auvorechnungsimport_next_to_review($db, $object->id);
@@ -456,7 +475,7 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 } elseif ($user->hasRight('auvorechnungsimport', 'imports', 'write')) {
 	print load_fiche_titre($langs->trans('AuvoRechnungsimportReviewTitle'), '', '');
 	if (!empty($extracted['is_credit_note'])) {
-		print '<div class="warning">'.$langs->trans('AuvoRechnungsimportErrCreditNote').'</div>';
+		print '<div class="info">'.$langs->trans('AuvoRechnungsimportCreditNoteInfo').'</div>';
 	}
 	print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'">';
 	print '<input type="hidden" name="token" value="'.newToken().'">';
@@ -465,7 +484,7 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	print '<tr><td class="titlefield fieldrequired">'.$langs->trans('ThirdParty').'</td><td>';
 	print $form->select_company($object->fk_soc, 'fk_soc', '(fournisseur:=:1)', 1, 0, 0, array(), 0, 'minwidth300');
 	$newSupplier = $extracted['supplier'] ?? array();
-	if (empty($object->fk_soc) && !empty($newSupplier['name']) && $canCreateBank && empty($extracted['is_credit_note'])) {
+	if (empty($object->fk_soc) && !empty($newSupplier['name']) && $canCreateBank) {
 		// Seller data of an e-invoice: offer to create the supplier from it
 		print '<br><label><input type="checkbox" name="create_supplier" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? ' checked' : '').'> '.$langs->trans('AuvoRechnungsimportSupplierCreate').'</label>';
 		print '<div class="opacitymedium small">'.dol_escape_htmltag($newSupplier['name']).', '.dol_escape_htmltag(trim($newSupplier['zip'].' '.$newSupplier['town'].' '.$newSupplier['country']));
@@ -478,6 +497,28 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 		print ' '.img_warning().' '.$langs->trans('AuvoRechnungsimportWarnDuplicateRef', $existingInvoice->getNomUrl(1));
 	}
 	print '</td></tr>';
+	if (!empty($extracted['is_credit_note'])) {
+		$candidates = auvorechnungsimport_source_invoice_candidates($db, (int) $object->fk_soc, (string) $extracted['invoice_ref']);
+		$wanted = array();
+		foreach ($extracted['preceding_invoices'] ?? array() as $pi) {
+			$wanted[] = (string) $pi['ref'];
+		}
+		print '<tr><td class="'.(getDolGlobalString('INVOICE_CREDIT_NOTE_STANDALONE') ? '' : 'fieldrequired').'">'.$langs->trans('AuvoRechnungsimportCreditSource').'</td><td>';
+		print '<select name="fac_avoir" class="minwidth300"><option value="0"></option>';
+		$preselected = 0;
+		foreach ($candidates as $c) {
+			$isWanted = in_array($c['ref_supplier'], $wanted, true);
+			if ($isWanted && !$preselected) {
+				$preselected = $c['id'];
+			}
+			print '<option value="'.$c['id'].'"'.($isWanted ? ' selected' : '').'>'.dol_escape_htmltag($c['ref_supplier'].' ('.$c['ref'].') '.dol_print_date($c['date'], 'day').' '.price($c['total_ttc']).' '.($object->fk_soc > 0 ? '' : '- '.$c['socname'])).'</option>';
+		}
+		print '</select>';
+		if (!$preselected && !empty($wanted)) {
+			print ' <span class="opacitymedium">'.img_warning().' '.$langs->trans('AuvoRechnungsimportCreditSourceNotFound', dol_escape_htmltag(implode(', ', $wanted))).'</span>';
+		}
+		print '</td></tr>';
+	}
 	print '<tr><td>'.$langs->trans('Date').'</td><td><input type="date" name="invoice_date" value="'.dol_escape_htmltag($extracted['invoice_date'] ?? '').'"></td></tr>';
 	print '<tr><td>'.$langs->trans('DateDue').'</td><td><input type="date" name="due_date" value="'.dol_escape_htmltag($extracted['due_date'] ?? '').'"></td></tr>';
 
@@ -681,10 +722,10 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 })();
 </script>';
 
-		if ($canUpdateBuyprice) {
+		if ($canUpdateBuyprice && empty($extracted['is_credit_note'])) {
 			print '<div class="marginbottomonly"><label><input type="checkbox" name="update_buyprice" value="1"> '.$langs->trans('AuvoRechnungsimportUpdateBuyprice').'</label></div>';
 		}
-		if ($canCreateOrder) {
+		if ($canCreateOrder && empty($extracted['is_credit_note'])) {
 			// Pre-ticked when stock is managed and the invoice has stockable products.
 			$hasStockable = false;
 			foreach ($lines as $line) {

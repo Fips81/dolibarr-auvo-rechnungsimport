@@ -641,6 +641,7 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 		'buyer_reference' => $inv['document']['buyer_reference'],
 		'order_reference' => $inv['document']['order_reference'],
 		'contract_reference' => $inv['document']['contract_reference'],
+		'preceding_invoices' => $inv['document']['preceding_invoices'],
 		'period_start' => $inv['document']['period_start'],
 		'period_end' => $inv['document']['period_end'],
 		'payment_terms' => $inv['document']['payment_terms'],

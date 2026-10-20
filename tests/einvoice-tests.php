@@ -131,7 +131,7 @@ check(strpos($an['attachments'][0]['content'] ?? '', '%PDF') === 0, 'CII attachm
 $dir = $argv[1] ?? getenv('KOSIT_TESTSUITE') ?: '';
 if ($dir !== '' && is_dir($dir)) {
 	// Differences that are in the testsuite data itself, not in the reader
-	$knownDataDiffs = array('order_reference', '01.21:supplier_vat', '01.21:supplier', '01.20:supplier', '03.06:supplier');
+	$knownDataDiffs = array('order_reference', '01.21:supplier_vat', '01.21:supplier', '01.20:supplier', '03.06:supplier', '01.01:preceding_invoices');
 	$n = 0;
 	foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)) as $file) {
 		$file = (string) $file;
@@ -198,6 +198,12 @@ foreach (array('name', 'address', 'zip', 'town', 'country', 'email', 'phone', 'v
 }
 eq('HRB 12345', $sd['legal_id'], 'seller registration number (UBL)');
 eq('', auvorechnungsimport_seller_details(array())['name'], 'no seller gives empty details');
+
+// Credit note: reference to the invoice it corrects (BT-25) reaches the review fields
+$gs = auvorechnungsimport_einvoice_to_fields(load('xrechnung-ubl-gutschrift.xml'));
+check(!empty($gs['is_credit_note']), 'credit note is flagged');
+eq('RE2026-0700', $gs['preceding_invoices'][0]['ref'] ?? null, 'credit note names the original invoice in the review fields');
+check(lines_sum($gs) > 0, 'credit note lines are positive');
 
 echo "Passed: $passed\nFailed: ".count($failures)."\n";
 foreach ($failures as $f) {

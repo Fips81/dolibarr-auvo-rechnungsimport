@@ -2391,3 +2391,47 @@ function auvorechnungsimport_create_supplier($db, $user, $details, &$errors)
 	}
 	return $id;
 }
+
+/**
+ * Invoices of a supplier a credit note can refer to: validated standard
+ * invoices, newest first. Without a supplier, those of all suppliers.
+ *
+ * @param DoliDB $db
+ * @param int $fkSoc Supplier or 0
+ * @param string $exceptRef Supplier ref of the credit note itself (not offered)
+ * @return array<int,array{id:int,ref:string,ref_supplier:string,date:int,total_ttc:float,socname:string}>
+ */
+function auvorechnungsimport_source_invoice_candidates($db, $fkSoc, $exceptRef = '')
+{
+	$sql = "SELECT f.rowid, f.ref, f.ref_supplier, f.datef, f.total_ttc, s.nom";
+	$sql .= " FROM ".MAIN_DB_PREFIX."facture_fourn as f INNER JOIN ".MAIN_DB_PREFIX."societe as s ON s.rowid = f.fk_soc";
+	$sql .= " WHERE f.type = 0 AND f.fk_statut >= 1 AND f.entity IN (".getEntity('facture_fourn').")";
+	if ($fkSoc > 0) {
+		$sql .= " AND f.fk_soc = ".((int) $fkSoc);
+	}
+	if ($exceptRef !== '') {
+		$sql .= " AND f.ref_supplier <> '".$db->escape($exceptRef)."'";
+	}
+	$sql .= " ORDER BY f.datef DESC, f.rowid DESC".$db->plimit(200);
+	$out = array();
+	$resql = $db->query($sql);
+	while ($resql && ($o = $db->fetch_object($resql))) {
+		$out[] = array('id' => (int) $o->rowid, 'ref' => $o->ref, 'ref_supplier' => (string) $o->ref_supplier, 'date' => $db->jdate($o->datef), 'total_ttc' => (float) $o->total_ttc, 'socname' => $o->nom);
+	}
+	return $out;
+}
+
+/**
+ * Whether an invoice is a valid origin for a credit note of this supplier.
+ *
+ * @param DoliDB $db
+ * @param int $fkSoc
+ * @param int $invoiceId
+ * @return bool
+ */
+function auvorechnungsimport_is_source_invoice($db, $fkSoc, $invoiceId)
+{
+	$resql = $db->query("SELECT rowid FROM ".MAIN_DB_PREFIX."facture_fourn WHERE rowid = ".((int) $invoiceId)." AND fk_soc = ".((int) $fkSoc)
+		." AND type = 0 AND fk_statut >= 1 AND entity IN (".getEntity('facture_fourn').")");
+	return $resql && $db->num_rows($resql) > 0;
+}
