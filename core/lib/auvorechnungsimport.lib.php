@@ -2244,3 +2244,104 @@ function auvorechnungsimport_learn_line_mode($db, $user, $fkSoc, $line, $mode)
 	}
 	return 1;
 }
+
+/**
+ * Id of a payment type (llx_c_paiement) by its code.
+ *
+ * @param DoliDB $db
+ * @param string $code e.g. VIR
+ * @return int Id or 0
+ */
+function auvorechnungsimport_payment_type_id($db, $code)
+{
+	if ($code === '') {
+		return 0;
+	}
+	$resql = $db->query("SELECT id FROM ".MAIN_DB_PREFIX."c_paiement WHERE code = '".$db->escape($code)."' AND active = 1");
+	$obj = $resql ? $db->fetch_object($resql) : null;
+	return $obj ? (int) $obj->id : 0;
+}
+
+/**
+ * Whether the supplier already has a bank account with this IBAN.
+ *
+ * @param DoliDB $db
+ * @param int $fkSoc
+ * @param string $iban
+ * @return int Id of the bank account or 0
+ */
+function auvorechnungsimport_find_supplier_bank($db, $fkSoc, $iban)
+{
+	$iban = preg_replace('/\s+/', '', strtoupper($iban));
+	if ($fkSoc <= 0 || $iban === '') {
+		return 0;
+	}
+	$resql = $db->query("SELECT rowid, iban_prefix FROM ".MAIN_DB_PREFIX."societe_rib WHERE fk_soc = ".((int) $fkSoc)." AND type = 'ban'");
+	while ($resql && ($obj = $db->fetch_object($resql))) {
+		if (preg_replace('/\s+/', '', strtoupper((string) dolDecrypt($obj->iban_prefix))) === $iban) {
+			return (int) $obj->rowid;
+		}
+	}
+	return 0;
+}
+
+/**
+ * Adds the IBAN of an e-invoice to the supplier's bank accounts (never
+ * replaces the default account).
+ *
+ * @param DoliDB $db
+ * @param User $user
+ * @param int $fkSoc
+ * @param string $iban
+ * @param string $bic
+ * @param string $owner Account holder (BT-85), the supplier's name if empty
+ * @return int Id of the new bank account, <=0 on error (0 = IBAN invalid or known)
+ */
+function auvorechnungsimport_create_supplier_bank($db, $user, $fkSoc, $iban, $bic, $owner)
+{
+	require_once DOL_DOCUMENT_ROOT.'/societe/class/companybankaccount.class.php';
+	require_once DOL_DOCUMENT_ROOT.'/core/lib/bank.lib.php';
+	$iban = preg_replace('/\s+/', '', strtoupper($iban));
+	if ($iban === '' || !checkIbanForAccount(null, $iban) || auvorechnungsimport_find_supplier_bank($db, $fkSoc, $iban)) {
+		return 0;
+	}
+	$societe = new Societe($db);
+	if ($societe->fetch($fkSoc) <= 0) {
+		return -1;
+	}
+	$account = new CompanyBankAccount($db);
+	$account->socid = $fkSoc;
+	$account->type = 'ban';
+	$account->default_rib = 0;
+	$account->label = 'IBAN '.substr($iban, 0, 4).'…'.substr($iban, -4);
+	$account->iban = $iban;
+	$account->bic = $bic;
+	$account->owner_name = $owner !== '' ? $owner : $societe->name;
+	$account->owner_address = $societe->getFullAddress();
+	$account->status = 1;
+	$account->fk_country = (int) $societe->country_id;
+	$account->country_code = $societe->country_code;
+	$id = $account->create($user);
+	if ($id > 0 && $account->update($user) <= 0) {
+		return -1;
+	}
+	return $id;
+}
+
+/**
+ * Translated labels for auvorechnungsimport_header_note().
+ *
+ * @param Translate $langs
+ * @return array<string,string>
+ */
+function auvorechnungsimport_header_labels($langs)
+{
+	return array(
+		'order' => $langs->transnoentities('AuvoRechnungsimportViewOrderRef'),
+		'contract' => $langs->transnoentities('AuvoRechnungsimportViewContractRef'),
+		'buyer' => $langs->transnoentities('AuvoRechnungsimportViewBuyerRef'),
+		'reference' => $langs->transnoentities('AuvoRechnungsimportViewPaymentRef'),
+		'period' => $langs->transnoentities('AuvoRechnungsimportViewPeriod'),
+		'terms' => $langs->transnoentities('AuvoRechnungsimportViewPaymentTerms'),
+	);
+}

@@ -55,6 +55,7 @@ if ($object->fetch($id) <= 0) {
 $extracted = $object->getExtractedData();
 $canUpdateBuyprice = $user->hasRight('produit', 'creer') || $user->hasRight('service', 'creer');
 $canCreateOrder = isModEnabled('supplier_order') && $user->hasRight('fournisseur', 'commande', 'creer');
+$canCreateBank = $user->hasRight('societe', 'creer');
 $canCreateProduct = isModEnabled('variants') && $user->hasRight('produit', 'creer');
 
 /**
@@ -112,6 +113,18 @@ if ($action == 'createinvoice' && $user->hasRight('auvorechnungsimport', 'import
 		$invoice->type = FactureFournisseur::TYPE_STANDARD;
 		$invoice->fk_project = 0;
 		$invoice->note_private = $langs->trans('AuvoRechnungsimportCreatedFrom', $object->ref);
+		$headerNote = auvorechnungsimport_header_note($extracted, auvorechnungsimport_header_labels($langs));
+		if ($headerNote !== '') {
+			$invoice->note_private .= "\n".$headerNote;
+		}
+		$invoice->cond_reglement_id = GETPOSTINT('cond_reglement_id');
+		$invoice->mode_reglement_id = GETPOSTINT('mode_reglement_id');
+		$dueDate = GETPOST('due_date', 'alpha');
+		if ($dueDate) {
+			$invoice->date_echeance = dol_stringtotime($dueDate);
+		} elseif ($invoice->cond_reglement_id > 0) {
+			$invoice->date_echeance = $invoice->calculate_date_lim_reglement();
+		}
 
 		$result = $invoice->create($user);
 		if ($result > 0) {
@@ -201,6 +214,12 @@ if ($action == 'createinvoice' && $user->hasRight('auvorechnungsimport', 'import
 				$invoice->errors[] = $langs->trans('AuvoRechnungsimportErrBuyprice', $line['label']);
 				$result = -1;
 				break;
+			}
+		}
+
+		if ($result > 0 && GETPOSTINT('create_bank') && $canCreateBank && !empty($extracted['iban'])) {
+			if (auvorechnungsimport_create_supplier_bank($db, $user, $fkSoc, (string) $extracted['iban'], (string) ($extracted['bic'] ?? ''), (string) ($extracted['account_name'] ?? '')) < 0) {
+				setEventMessages($langs->trans('AuvoRechnungsimportErrBank'), null, 'warnings');
 			}
 		}
 
@@ -438,6 +457,39 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	}
 	print '</td></tr>';
 	print '<tr><td>'.$langs->trans('Date').'</td><td><input type="date" name="invoice_date" value="'.dol_escape_htmltag($extracted['invoice_date'] ?? '').'"></td></tr>';
+	print '<tr><td>'.$langs->trans('DateDue').'</td><td><input type="date" name="due_date" value="'.dol_escape_htmltag($extracted['due_date'] ?? '').'"></td></tr>';
+
+	// Payment terms and type: from the e-invoice, else the supplier's defaults
+	$supplierPay = new Societe($db);
+	if ($object->fk_soc > 0) {
+		$supplierPay->fetch($object->fk_soc);
+	}
+	$modeId = auvorechnungsimport_payment_type_id($db, auvorechnungsimport_payment_means_to_dolibarr($extracted['payment_means_code'] ?? ''));
+	if ($modeId <= 0) {
+		$modeId = (int) $supplierPay->mode_reglement_supplier_id;
+	}
+	print '<tr><td>'.$langs->trans('PaymentConditionsShort').'</td><td>';
+	print $form->getSelectConditionsPaiements((int) $supplierPay->cond_reglement_supplier_id, 'cond_reglement_id', -1, 1);
+	if (!empty($extracted['payment_terms'])) {
+		print ' <span class="opacitymedium small">'.auvorechnungsimport_render_terms($extracted['payment_terms']).'</span>';
+	}
+	print '</td></tr>';
+	print '<tr><td>'.$langs->trans('PaymentMode').'</td><td>';
+	$form->select_types_paiements($modeId, 'mode_reglement_id', 'DBIT', 0, 1);
+	print '</td></tr>';
+	if (!empty($extracted['iban'])) {
+		print '<tr><td>'.$langs->trans('IBAN').'</td><td>'.dol_escape_htmltag($extracted['iban']).(!empty($extracted['bic']) ? ' / '.dol_escape_htmltag($extracted['bic']) : '');
+		if ($object->fk_soc > 0 && auvorechnungsimport_find_supplier_bank($db, (int) $object->fk_soc, (string) $extracted['iban'])) {
+			print ' '.img_picto('', 'tick').' '.$langs->trans('AuvoRechnungsimportBankKnown');
+		} elseif ($canCreateBank) {
+			print ' <label><input type="checkbox" name="create_bank" value="1" checked> '.$langs->trans('AuvoRechnungsimportBankCreate').'</label>';
+		}
+		print '</td></tr>';
+	}
+	$headerNote = auvorechnungsimport_header_note($extracted, auvorechnungsimport_header_labels($langs));
+	if ($headerNote !== '') {
+		print '<tr><td>'.$langs->trans('NotePrivate').'</td><td class="opacitymedium small">'.dol_nl2br(dol_escape_htmltag($headerNote)).'</td></tr>';
+	}
 	print '</table>';
 
 	$lines = isset($extracted['lines']) && is_array($extracted['lines']) ? $extracted['lines'] : array();

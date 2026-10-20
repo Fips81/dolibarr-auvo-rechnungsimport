@@ -116,6 +116,14 @@ einmal):
 - **Anlagen** der E-Rechnung (BG-24, z. B. die Rechnung als PDF oder
   Stundennachweise) lassen sich herunterladen und werden beim Anlegen der
   Lieferantenrechnung zusammen mit der XML-Datei an sie angehängt.
+- **Kopfdaten** der E-Rechnung kommen mit in die Lieferantenrechnung: Fälligkeitsdatum,
+  Zahlungsart (aus dem Zahlungsmittelcode, z. B. 58 → Überweisung) und
+  Zahlungsbedingung (Vorschlag aus den Lieferanten-Stammdaten, im Formular
+  änderbar). Ist die IBAN beim Lieferanten noch nicht hinterlegt, legt eine
+  Checkbox sie als zusätzliches Bankkonto an (nur gültige IBAN, das Standardkonto
+  wird nie ersetzt). Bestell-, Vertrags- und Käuferreferenz, Verwendungszweck,
+  Leistungszeitraum und Zahlungsbedingungstext (inkl. Skonto) stehen in der
+  privaten Notiz.
 - **Gutschriften** werden erkannt und angezeigt, aber noch nicht automatisch
   als Lieferanten-Gutschrift angelegt (Dolibarr braucht dafür die
   Ursprungsrechnung).
@@ -252,6 +260,12 @@ jedes Modul bleibt einzeln installier- und entfernbar.
 | `symfony/polyfill-mbstring` | Kompatibilität | MIT |
 
 ## Changelog
+
+### 0.4.0 (in Arbeit)
+
+- Neu: Kopfdaten aus der E-Rechnung werden in die Lieferantenrechnung übernommen
+  (Fälligkeit, Zahlungsart, Zahlungsbedingung, Referenzen und Leistungszeitraum
+  als Notiz); IBAN optional als Bankkonto des Lieferanten.
 
 ### 0.3.0 (Oktober 2026)
 

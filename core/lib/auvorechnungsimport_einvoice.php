@@ -614,6 +614,14 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 		);
 	}
 
+	// First payment means that names a creditor account (BG-17), else the first one
+	$means = null;
+	foreach ($inv['payment']['means'] as $pm) {
+		if ($means === null || ($means['iban'] === '' && $pm['iban'] !== '')) {
+			$means = $pm;
+		}
+	}
+
 	$vat = (string) ($seller['vat_id'] ?? '');
 	return array(
 		'supplier_name' => (string) ($seller['name'] ?? ''),
@@ -631,10 +639,66 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 		'type_code' => $inv['document']['type_code'],
 		'buyer_reference' => $inv['document']['buyer_reference'],
 		'order_reference' => $inv['document']['order_reference'],
+		'contract_reference' => $inv['document']['contract_reference'],
+		'period_start' => $inv['document']['period_start'],
+		'period_end' => $inv['document']['period_end'],
+		'payment_terms' => $inv['document']['payment_terms'],
+		'payment_reference' => $inv['payment']['remittance'],
+		'payment_means_code' => $means['code'] ?? '',
+		'iban' => preg_replace('/\s+/', '', strtoupper((string) ($means['iban'] ?? ''))),
+		'bic' => strtoupper((string) ($means['bic'] ?? '')),
+		'account_name' => (string) ($means['account_name'] ?? ''),
 		'syntax' => $inv['syntax'],
 		'attachments' => count(array_filter($inv['attachments'], function ($a) {
 			return $a['content'] !== '';
 		})),
 		'lines' => $lines,
 	);
+}
+
+/**
+ * Dolibarr payment type code (llx_c_paiement.code) for a UNTDID 4461 payment
+ * means code (BT-81).
+ *
+ * @param string $code e.g. 58 (SEPA credit transfer)
+ * @return string VIR, PRE, CB, LIQ, CHQ or '' if there is no sensible match
+ */
+function auvorechnungsimport_payment_means_to_dolibarr($code)
+{
+	$map = array(
+		'30' => 'VIR', '31' => 'VIR', '42' => 'VIR', '58' => 'VIR',
+		'49' => 'PRE', '59' => 'PRE',
+		'48' => 'CB', '54' => 'CB', '55' => 'CB',
+		'10' => 'LIQ',
+		'20' => 'CHQ', '21' => 'CHQ',
+	);
+	return $map[trim((string) $code)] ?? '';
+}
+
+/**
+ * Readable header details of an e-invoice that Dolibarr has no field for
+ * (order/contract/buyer reference, service period, payment terms). They go
+ * into the private note of the supplier invoice.
+ *
+ * @param array<string,mixed> $fields Review fields (auvorechnungsimport_einvoice_to_fields)
+ * @param array<string,string> $labels Label per key: order, contract, buyer, period, terms, reference
+ * @return string
+ */
+function auvorechnungsimport_header_note($fields, $labels)
+{
+	$out = array();
+	foreach (array('order_reference' => 'order', 'contract_reference' => 'contract', 'buyer_reference' => 'buyer', 'payment_reference' => 'reference') as $key => $label) {
+		if (!empty($fields[$key])) {
+			$out[] = $labels[$label].': '.$fields[$key];
+		}
+	}
+	$start = (string) ($fields['period_start'] ?? '');
+	$end = (string) ($fields['period_end'] ?? '');
+	if ($start !== '' || $end !== '') {
+		$out[] = $labels['period'].': '.($start !== '' && $end !== '' && $start !== $end ? $start.' - '.$end : ($start !== '' ? $start : $end));
+	}
+	if (!empty($fields['payment_terms'])) {
+		$out[] = $labels['terms'].': '.str_replace("\n", ' / ', trim($fields['payment_terms']));
+	}
+	return implode("\n", $out);
 }

@@ -163,6 +163,31 @@ if ($dir !== '' && is_dir($dir)) {
 	echo "KoSIT testsuite: $n documents\n";
 }
 
+// Header data for the supplier invoice (due date, payment, references)
+$std = auvorechnungsimport_einvoice_to_fields(load('xrechnung-ubl-standard.xml'));
+$cii = auvorechnungsimport_einvoice_to_fields(load('xrechnung-cii-skonto.xml'));
+eq('DE02120300000000202051', $std['iban'], 'IBAN (UBL)');
+eq('BYLADEM1001', $std['bic'], 'BIC (UBL)');
+eq('58', $std['payment_means_code'], 'payment means code');
+eq('2026-06-15', $std['due_date'], 'due date (UBL)');
+eq('2026-06-15', $cii['due_date'], 'due date (CII)');
+eq('2026-05-01', $std['period_start'], 'service period start');
+eq('2026-05-31', $std['period_end'], 'service period end');
+eq('BEST-4711', $std['order_reference'], 'order reference');
+check(strpos($cii['payment_terms'], '#SKONTO#TAGE=7#PROZENT=2.00#') !== false, 'Skonto stays in the payment terms (CII)');
+eq($std['iban'], $cii['iban'], 'CII and UBL give the same IBAN');
+eq('VIR', auvorechnungsimport_payment_means_to_dolibarr('58'), 'means 58 -> VIR');
+eq('VIR', auvorechnungsimport_payment_means_to_dolibarr('30'), 'means 30 -> VIR');
+eq('PRE', auvorechnungsimport_payment_means_to_dolibarr('59'), 'means 59 -> PRE');
+eq('', auvorechnungsimport_payment_means_to_dolibarr('1'), 'unknown means -> none');
+$labels = array('order' => 'Order', 'contract' => 'Contract', 'buyer' => 'Buyer', 'reference' => 'Ref', 'period' => 'Period', 'terms' => 'Terms');
+$note = auvorechnungsimport_header_note($std, $labels);
+check(strpos($note, 'Order: BEST-4711') !== false, 'header note has the order reference');
+check(strpos($note, 'Period: 2026-05-01 - 2026-05-31') !== false, 'header note has the period');
+check(strpos($note, "\n") !== false && strpos($note, 'Terms: Zahlbar innerhalb 14 Tagen. / #SKONTO#') !== false, 'header note has the terms on one line');
+eq('', auvorechnungsimport_header_note(array(), $labels), 'empty fields give no note');
+eq('Period: 2026-05-01', auvorechnungsimport_header_note(array('period_start' => '2026-05-01', 'period_end' => '2026-05-01'), $labels), 'one-day period is shown once');
+
 echo "Passed: $passed\nFailed: ".count($failures)."\n";
 foreach ($failures as $f) {
 	echo "  - $f\n";
