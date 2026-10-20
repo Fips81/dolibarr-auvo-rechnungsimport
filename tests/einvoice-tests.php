@@ -149,6 +149,12 @@ if ($dir !== '' && is_dir($dir)) {
 		if ($p['totals']['tax_basis'] !== null) {
 			check(abs($p['totals']['tax_basis'] - lines_sum($fields)) <= 0.02, 'KoSIT '.basename($file).' lines add up to the net total');
 		}
+		// Plausibility hints: the official samples are consistent, except these
+		// (05.01a states an amount due that differs from the total; the minimal
+		// samples name no seller tax ID)
+		$hintKeys = array_column(auvorechnungsimport_check_einvoice($p), 'key');
+		$expectedHints = array('05.01a-INVOICE_ubl.xml' => array('DuePayable'), '01.05_minimal_test_ubl.xml' => array('MissingSellerTaxId'), '01.05_minimal_test_uncefact.xml' => array('MissingSellerTaxId'));
+		eq($expectedHints[basename($file)] ?? array(), $hintKeys, 'KoSIT '.basename($file).' plausibility hints');
 		if (substr($file, -13) === '_uncefact.xml' && is_file($ubl = substr($file, 0, -13).'_ubl.xml')) {
 			$fu = auvorechnungsimport_einvoice_to_fields(auvorechnungsimport_parse_einvoice(file_get_contents($ubl)));
 			$case = substr(basename($file), 0, 5);
@@ -214,6 +220,25 @@ eq('KG', auvorechnungsimport_unit_code_to_dolibarr('KGM'), 'KGM -> KG');
 eq('', auvorechnungsimport_unit_code_to_dolibarr('XYZ'), 'unknown unit -> none');
 eq('', auvorechnungsimport_unit_code_to_dolibarr(''), 'empty unit -> none');
 check(array_key_exists('buyer_item_id', $std['lines'][0]), 'review lines carry the buyer article number');
+
+// Plausibility hints: clean invoices give none, broken ones name the problem
+foreach (array('xrechnung-ubl-standard.xml', 'xrechnung-cii-skonto.xml', 'xrechnung-cii-anlagen.xml', 'xrechnung-ubl-abschlag.xml', 'xrechnung-ubl-gutschrift.xml') as $fx) {
+	eq(array(), auvorechnungsimport_check_einvoice(load($fx)), 'no hints for '.$fx);
+}
+$bad = load('xrechnung-ubl-standard.xml');
+$bad['totals']['grand_total'] += 5;
+$bad['totals']['line_total'] += 3;
+$bad['document']['id'] = '';
+$bad['seller']['vat_id'] = '';
+$bad['seller']['tax_id'] = '';
+$bad['seller']['legal_id'] = '';
+$bad['document']['due_date'] = '';
+$bad['document']['payment_terms'] = '';
+$bad['vat_breakdown'][0]['category'] = 'Z';
+$keys = array_column(auvorechnungsimport_check_einvoice($bad), 'key');
+foreach (array('LineSum', 'TaxBasis', 'GrandTotal', 'DuePayable', 'VatRateZero', 'MissingInvoiceNumber', 'MissingSellerTaxId', 'MissingDue') as $k) {
+	check(in_array($k, $keys, true), 'hint '.$k.' for a broken invoice');
+}
 
 echo "Passed: $passed\nFailed: ".count($failures)."\n";
 foreach ($failures as $f) {

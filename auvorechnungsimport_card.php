@@ -479,6 +479,29 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	if (!empty($extracted['is_credit_note'])) {
 		print '<div class="info">'.$langs->trans('AuvoRechnungsimportCreditNoteInfo').'</div>';
 	}
+	// Plausibility hints: arithmetic and details of the e-invoice, and a record of the same invoice
+	$hints = array();
+	$srcForCheck = DOL_DATA_ROOT.'/auvorechnungsimport/'.$object->filepath;
+	$einvoiceForCheck = is_readable($srcForCheck) ? auvorechnungsimport_load_einvoice($srcForCheck) : null;
+	if ($einvoiceForCheck !== null) {
+		foreach (auvorechnungsimport_check_einvoice($einvoiceForCheck) as $h) {
+			$hints[] = call_user_func_array(array($langs, 'transnoentities'), array_merge(array('AuvoRechnungsimportCheck'.$h['key']), $h['args']));
+		}
+	}
+	$dupLinks = array();
+	foreach (auvorechnungsimport_find_duplicate_imports($db, $object, $extracted) as $d) {
+		$dupLinks[] = '<a href="'.$_SERVER['PHP_SELF'].'?id='.$d['id'].'">'.dol_escape_htmltag($d['ref']).' ('.dol_escape_htmltag($d['filename']).')</a>';
+	}
+	if (!empty($hints) || !empty($dupLinks)) {
+		print '<div class="warning"><b>'.$langs->trans('AuvoRechnungsimportCheckTitle').'</b><ul class="nomargintop nomarginbottom">';
+		foreach ($hints as $h) {
+			print '<li>'.dol_escape_htmltag($h).'</li>';
+		}
+		if (!empty($dupLinks)) {
+			print '<li>'.$langs->trans('AuvoRechnungsimportCheckDuplicate', implode(', ', $dupLinks)).'</li>';
+		}
+		print '</ul></div>';
+	}
 	print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'">';
 	print '<input type="hidden" name="token" value="'.newToken().'">';
 	print '<input type="hidden" name="action" value="createinvoice">';

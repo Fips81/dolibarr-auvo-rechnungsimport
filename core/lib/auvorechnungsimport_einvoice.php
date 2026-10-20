@@ -751,3 +751,96 @@ function auvorechnungsimport_unit_code_to_dolibarr($code)
 	);
 	return $map[strtoupper(trim((string) $code))] ?? '';
 }
+
+/**
+ * Plausibility hints for a parsed e-invoice: arithmetic of the totals
+ * (EN 16931 BR-CO-10, -13 to -17), VAT category against rate, mandatory
+ * details. Only hints - this is no validation; the KoSIT validator is.
+ *
+ * @param array $inv Parsed e-invoice (auvorechnungsimport_parse_einvoice)
+ * @return array<int,array{key:string,args:array<int,string>}> Lang key (suffix after AuvoRechnungsimportCheck) and arguments
+ */
+function auvorechnungsimport_check_einvoice($inv)
+{
+	$out = array();
+	$tol = 0.02;
+	$t = $inv['totals'];
+	$add = function ($key, $args = array()) use (&$out) {
+		$out[] = array('key' => $key, 'args' => array_map('strval', $args));
+	};
+	$differs = function ($a, $b) use ($tol) {
+		return $a !== null && $b !== null && abs($a - $b) > $tol;
+	};
+	$fmt = function ($n) {
+		return number_format((float) $n, 2, '.', '');
+	};
+
+	$linesSum = 0.0;
+	$allLines = true;
+	foreach ($inv['lines'] as $l) {
+		if ($l['net_amount'] === null) {
+			$allLines = false;
+		} else {
+			$linesSum += $l['net_amount'];
+		}
+	}
+	if ($allLines && $differs($linesSum, $t['line_total'])) {
+		$add('LineSum', array($fmt($linesSum), $fmt($t['line_total'])));
+	}
+	if ($t['line_total'] !== null && $t['tax_basis'] !== null) {
+		$expected = $t['line_total'] - (float) $t['allowance_total'] + (float) $t['charge_total'];
+		if ($differs($expected, $t['tax_basis'])) {
+			$add('TaxBasis', array($fmt($expected), $fmt($t['tax_basis'])));
+		}
+	}
+	if ($t['tax_basis'] !== null && $t['grand_total'] !== null) {
+		$expected = $t['tax_basis'] + (float) $t['tax_total'];
+		if ($t['tax_total'] !== null && $differs($expected, $t['grand_total'])) {
+			$add('GrandTotal', array($fmt($expected), $fmt($t['grand_total'])));
+		}
+	}
+	if ($t['grand_total'] !== null && $t['due_payable'] !== null) {
+		$expected = $t['grand_total'] - (float) $t['prepaid'] + (float) $t['rounding'];
+		if ($differs($expected, $t['due_payable'])) {
+			$add('DuePayable', array($fmt($expected), $fmt($t['due_payable'])));
+		}
+	}
+	if (!empty($inv['vat_breakdown'])) {
+		$basis = 0.0;
+		$tax = 0.0;
+		foreach ($inv['vat_breakdown'] as $b) {
+			$basis += (float) $b['basis'];
+			$tax += (float) $b['tax'];
+			$cat = strtoupper((string) $b['category']);
+			$rate = $b['rate'];
+			if ($cat === 'S' && $rate !== null && $rate <= 0) {
+				$add('VatRateS');
+			} elseif (in_array($cat, array('Z', 'E', 'AE', 'K', 'G'), true) && $rate !== null && $rate > 0) {
+				$add('VatRateZero', array($cat, $fmt($rate)));
+			}
+			if ($rate !== null && $b['basis'] !== null && $b['tax'] !== null && abs($b['basis'] * $rate / 100 - $b['tax']) > 0.05) {
+				$add('VatAmount', array($cat.' '.$fmt($rate).' %', $fmt($b['basis'] * $rate / 100), $fmt($b['tax'])));
+			}
+		}
+		if ($differs($basis, $t['tax_basis'])) {
+			$add('BreakdownBasis', array($fmt($basis), $fmt($t['tax_basis'])));
+		}
+		if ($differs($tax, $t['tax_total'])) {
+			$add('BreakdownTax', array($fmt($tax), $fmt($t['tax_total'])));
+		}
+	}
+
+	$seller = $inv['seller'] ?? array();
+	foreach (array('SellerName' => ($seller['name'] ?? ''), 'InvoiceNumber' => $inv['document']['id'], 'IssueDate' => $inv['document']['issue_date'], 'Currency' => $inv['document']['currency']) as $key => $value) {
+		if (trim((string) $value) === '') {
+			$add('Missing'.$key);
+		}
+	}
+	if (trim((string) ($seller['vat_id'] ?? '')) === '' && trim((string) ($seller['tax_id'] ?? '')) === '' && trim((string) ($seller['legal_id'] ?? '')) === '') {
+		$add('MissingSellerTaxId');
+	}
+	if (($t['due_payable'] ?? 0) > 0 && trim((string) $inv['document']['due_date']) === '' && trim((string) $inv['document']['payment_terms']) === '') {
+		$add('MissingDue');
+	}
+	return $out;
+}

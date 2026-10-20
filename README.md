@@ -139,8 +139,13 @@ einmal):
   Betrag (Nachlass innerhalb der Gutschrift) lassen sich nicht abbilden und
   blockieren das Anlegen, bis sie übersprungen werden. Einkaufspreise und
   Wareneingangs-Bestellung gibt es bei Gutschriften nicht.
-- **Keine Prüfung** gegen die Geschäftsregeln: das Modul liest, was die
-  Rechnung enthält. Für eine Formalprüfung den KoSIT-Validator nutzen.
+- **Prüfhinweise** im Prüfformular, keine Formalprüfung: Rechnen die Summen (Positionen,
+  Nachlässe/Zuschläge, Steuer, Gesamt- und Zahlbetrag) auf? Passen Steuerkategorie und
+  Steuersatz zusammen (z. B. S mit 0 %, oder Z/E/AE/K/G mit Satz)? Fehlen Pflichtangaben
+  (Verkäufername, Rechnungsnummer, Datum, Währung, USt-ID/Steuernummer, Fälligkeit)?
+  Außerdem der Hinweis, wenn dieselbe Rechnung (Nummer, Betrag, ggf. USt-ID) schon als
+  Import vorliegt. Die Hinweise blockieren nichts. Eine Formalprüfung gegen die
+  Geschäftsregeln leistet das Modul nicht – dafür den KoSIT-Validator nutzen.
 
 ## Positionen, Artikelzuordnung und Ablauf
 
@@ -290,6 +295,8 @@ jedes Modul bleibt einzeln installier- und entfernbar.
 - Neu: Artikelzuordnung über GTIN (auch mit führender Null, auch Lieferanten-Barcode) und
   die eigene Artikelnummer des Käufers (BT-156); Einheiten (BT-130) werden in die
   Zeilen übernommen.
+- Neu: Prüfhinweise im Prüfformular (Summen, Steuerkategorie gegen Satz, Pflichtangaben,
+  doppelt hochgeladene Rechnung).
 
 ### 0.3.0 (Oktober 2026)
 

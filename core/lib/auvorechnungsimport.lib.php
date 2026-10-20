@@ -2476,3 +2476,40 @@ function auvorechnungsimport_unit_id($db, $uneceCode)
 	}
 	return $cache[$code];
 }
+
+/**
+ * Other import records that look like the same invoice: same invoice number
+ * and amount (and, if both name one, the same supplier VAT ID).
+ *
+ * @param DoliDB $db
+ * @param ImportedInvoice $object The record being reviewed
+ * @param array<string,mixed> $extracted Its extracted data
+ * @return array<int,array{id:int,ref:string,filename:string}>
+ */
+function auvorechnungsimport_find_duplicate_imports($db, $object, $extracted)
+{
+	$ref = trim((string) ($extracted['invoice_ref'] ?? ''));
+	if ($ref === '' || empty($extracted['amount_ttc'])) {
+		return array();
+	}
+	$needle = '"invoice_ref":'.json_encode($ref, JSON_UNESCAPED_UNICODE);
+	$sql = "SELECT rowid, ref, original_filename, extracted_data FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
+	$sql .= " WHERE rowid <> ".((int) $object->id)." AND entity IN (".getEntity('importedinvoice').")";
+	$sql .= " AND extracted_data LIKE '%".$db->escape($db->escapeforlike($needle))."%'";
+	$sql .= $db->plimit(20);
+	$out = array();
+	$resql = $db->query($sql);
+	while ($resql && ($o = $db->fetch_object($resql))) {
+		$other = json_decode((string) $o->extracted_data, true);
+		if (!is_array($other) || trim((string) ($other['invoice_ref'] ?? '')) !== $ref || abs((float) ($other['amount_ttc'] ?? 0) - (float) $extracted['amount_ttc']) > 0.005) {
+			continue;
+		}
+		$v1 = (string) ($extracted['supplier_vat'] ?? '');
+		$v2 = (string) ($other['supplier_vat'] ?? '');
+		if ($v1 !== '' && $v2 !== '' && $v1 !== $v2) {
+			continue;
+		}
+		$out[] = array('id' => (int) $o->rowid, 'ref' => $o->ref, 'filename' => $o->original_filename);
+	}
+	return $out;
+}
