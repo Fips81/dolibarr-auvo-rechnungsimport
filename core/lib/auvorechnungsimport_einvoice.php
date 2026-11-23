@@ -577,6 +577,14 @@ function auvorechnungsimport_ubl_address($a, $str)
 function auvorechnungsimport_einvoice_to_fields($inv)
 {
 	$seller = $inv['seller'] ?? array();
+	$smallBusiness = false;
+	foreach (($inv['vat_breakdown'] ?? array()) as $tax) {
+		$exemptionText = (string) ($tax['exemption_reason'] ?? '').' '.(string) ($tax['exemption_code'] ?? '');
+		if (auvorechnungsimport_einvoice_is_small_business_note($exemptionText)) {
+			$smallBusiness = true;
+			break;
+		}
+	}
 	$lines = array();
 	foreach ($inv['lines'] as $l) {
 		$qty = $l['quantity'] ?? null;
@@ -594,6 +602,12 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 		if ($total !== null && $qty != 0 && ($price === null || abs($price * $qty - $total) > 0.01)) {
 			$price = $total / $qty;
 		}
+		$lineVat = $l['vat_rate'];
+		$lineVatCode = '';
+		if ($smallBusiness) {
+			$lineVat = 0.0;
+			$lineVatCode = 'K19';
+		}
 		$lines[] = array(
 			'source' => 'line',
 			'ref_supplier' => (string) $l['seller_item_id'],
@@ -603,7 +617,8 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 			'unit_code' => (string) $l['unit_code'],
 			'price' => $price,
 			'price_base' => 'HT',
-			'vat_rate' => $l['vat_rate'],
+			'vat_rate' => $lineVat,
+			'vat_src_code' => $lineVatCode,
 			'total' => $total,
 		);
 	}
@@ -612,6 +627,12 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 			continue;
 		}
 		$signed = $a['is_charge'] ? $a['amount'] : -$a['amount'];
+		$allowanceVat = $a['vat_rate'];
+		$allowanceVatCode = '';
+		if ($smallBusiness) {
+			$allowanceVat = 0.0;
+			$allowanceVatCode = 'K19';
+		}
 		$lines[] = array(
 			'source' => $a['is_charge'] ? 'charge' : 'allowance',
 			'ref_supplier' => '',
@@ -621,7 +642,8 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 			'unit_code' => '',
 			'price' => $signed,
 			'price_base' => 'HT',
-			'vat_rate' => $a['vat_rate'],
+			'vat_rate' => $allowanceVat,
+			'vat_src_code' => $allowanceVatCode,
 			'total' => $signed,
 		);
 	}
@@ -673,6 +695,7 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 		'amount_ttc' => $inv['totals']['grand_total'] ?? $inv['totals']['due_payable'],
 		'amount_ht' => $inv['totals']['tax_basis'],
 		'amount_due' => $inv['totals']['due_payable'],
+		'vat_treatment' => $smallBusiness ? 'DE_KLEINUNTERNEHMER_19' : '',
 		'currency' => $inv['document']['currency'],
 		'is_credit_note' => !empty($inv['document']['is_credit_note']),
 		'type_code' => $inv['document']['type_code'],
@@ -684,4 +707,10 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 		})),
 		'lines' => $lines,
 	);
+}
+
+/** Detect § 19 UStG / German small-business notes in extracted text. */
+function auvorechnungsimport_einvoice_is_small_business_note($text)
+{
+	return (bool) preg_match('/(?:§\s*19\s*[,;:]?\s*(?:(?:Absatz|Abs\.?)\s*1\s*[,;:]?\s*)?(?:UStG|Umsatzsteuergesetz)|(?:UStG|Umsatzsteuergesetz)\s*(?:§\s*19|19\s*[,;:]?\s*(?:Absatz|Abs\.?)\s*1)|Kleinunternehmer(?:regelung)?)/iu', (string) $text);
 }

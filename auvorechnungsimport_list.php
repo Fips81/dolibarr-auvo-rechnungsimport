@@ -52,6 +52,7 @@ if ($action == 'upload' && $user->hasRight('auvorechnungsimport', 'imports', 'wr
 		}
 	}
 	$queued = 0;
+	$duplicates = array();
 	$errors = array();
 	foreach ($files as $file) {
 		if ($file['error'] == UPLOAD_ERR_NO_FILE) {
@@ -66,14 +67,27 @@ if ($action == 'upload' && $user->hasRight('auvorechnungsimport', 'imports', 'wr
 			$errors[] = $langs->trans('AuvoRechnungsimportErrNotPdfFile', $origname);
 			continue;
 		}
+		$fileHash = strtolower(pathinfo($origname, PATHINFO_EXTENSION)) === 'pdf' ? hash_file('sha256', $file['tmp_name']) : null;
+		if (strtolower(pathinfo($origname, PATHINFO_EXTENSION)) === 'pdf' && $fileHash === false) {
+			$errors[] = $langs->trans('AuvoRechnungsimportErrHashFile', $origname);
+			continue;
+		}
+		$fileMd5 = strtolower(pathinfo($origname, PATHINFO_EXTENSION)) === 'pdf' ? hash_file('md5', $file['tmp_name']) : null;
+		$hashDuplicate = $fileHash ? auvorechnungsimport_find_duplicate_by_hash($db, $fileHash, 0, $fileMd5 ?: '') : null;
+		if ($hashDuplicate) {
+			$target = auvorechnungsimport_duplicate_target_link($hashDuplicate);
+			$duplicates[] = array('filename' => $origname, 'target_url' => $target['url'], 'target_label' => $target['label']);
+			continue;
+		}
 		$object = new ImportedInvoice($db);
 		$object->date_creation = dol_now();
 		$object->fk_user_creat = $user->id;
 		$object->original_filename = $origname;
 		$object->source = 'upload';
 		$object->filepath = '';
+		$object->file_hash = $fileHash;
 		$object->status = ImportedInvoice::STATUS_QUEUED;
-
+		$destdir = '';
 		$db->begin();
 		$ok = $object->create($user) > 0;
 		if ($ok) {
@@ -84,9 +98,9 @@ if ($action == 'upload' && $user->hasRight('auvorechnungsimport', 'imports', 'wr
 				$object->filepath = $object->id.'/'.$origname;
 				$ok = $object->update($user) > 0;
 			}
-		if ($ok && auvorechnungsimport_blockedlog_store_received_file($db, $object, $destdir.'/'.$origname, $user, 'upload') < 0) {
-			$ok = false;
-		}
+			if ($ok && auvorechnungsimport_blockedlog_store_received_file($db, $object, $destdir.'/'.$origname, $user, 'upload') < 0) {
+				$ok = false;
+			}
 		}
 		if ($ok) {
 			$db->commit();
@@ -100,10 +114,11 @@ if ($action == 'upload' && $user->hasRight('auvorechnungsimport', 'imports', 'wr
 	if ($queued) {
 		setEventMessages($langs->trans('AuvoRechnungsimportQueuedCron', $queued), null, 'mesgs');
 	}
+	if ($duplicates) $_SESSION['auvorechnungsimport_upload_duplicates'] = $duplicates;
 	if ($errors) {
 		setEventMessages(null, $errors, 'errors');
 	}
-	if (!$queued && !$errors) {
+	if (!$queued && !$duplicates && !$errors) {
 		setEventMessages($langs->trans('AuvoRechnungsimportErrNoFile'), null, 'errors');
 	}
 	header('Location: '.$_SERVER['PHP_SELF'].(GETPOST('mode', 'aZ09') === 'upload' ? '?mode=upload' : ''));
@@ -133,7 +148,8 @@ if ($action == 'deleteimport' && $user->hasRight('auvorechnungsimport', 'imports
 		$file = auvorechnungsimport_resolve_file($record->filepath);
 		$db->begin();
 		$result = $record->delete($user);
-		if ($result > 0) {
+		$deleteLogResult = $result > 0 ? auvorechnungsimport_blockedlog_log_import_deleted($db, $record, $user, $file) : 0;
+		if ($result > 0 && $deleteLogResult > 0) {
 			$db->commit();
 			if ($file !== false) {
 				dol_delete_file($file, 1);
@@ -142,7 +158,11 @@ if ($action == 'deleteimport' && $user->hasRight('auvorechnungsimport', 'imports
 			setEventMessages($langs->trans('AuvoRechnungsimportImportDeleted'), null, 'mesgs');
 		} else {
 			$db->rollback();
-			setEventMessages($langs->trans('AuvoRechnungsimportErrDelete'), $record->errors, 'errors');
+			if ($result > 0 && $deleteLogResult <= 0) {
+				setEventMessages($langs->trans('AuvoRechnungsimportErrDeleteLog'), null, 'errors');
+			} else {
+				setEventMessages($langs->trans('AuvoRechnungsimportErrDelete'), $record->errors, 'errors');
+			}
 		}
 		if ($queueLock !== null) {
 			auvorechnungsimport_queue_release_lock($queueLock);
@@ -154,6 +174,11 @@ if ($action == 'deleteimport' && $user->hasRight('auvorechnungsimport', 'imports
 
 // Views of the left menu: all, upload, or one status group.
 $mode = GETPOST('mode', 'aZ09');
+$uploadDuplicates = array();
+if (!empty($_SESSION['auvorechnungsimport_upload_duplicates'])) {
+	$uploadDuplicates = $_SESSION['auvorechnungsimport_upload_duplicates'];
+	unset($_SESSION['auvorechnungsimport_upload_duplicates']);
+}
 $views = array(
 	ImportedInvoice::STATUS_NEEDS_REVIEW.','.ImportedInvoice::STATUS_MATCHED => 'AuvoRechnungsimportFilterToReview',
 	ImportedInvoice::STATUS_QUEUED.','.ImportedInvoice::STATUS_PROCESSING => 'AuvoRechnungsimportStatusQueued',
@@ -190,6 +215,22 @@ if ($mode === 'upload') {
 llxHeader('', $title);
 
 print load_fiche_titre($title, '', 'fa-file-invoice');
+
+if ($uploadDuplicates) {
+	print '<div id="upload-duplicates-dialog" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportDuplicateUploadModalTitle')).'" style="display:none">';
+	print '<p>'.$langs->trans('AuvoRechnungsimportDuplicateUploadModalIntro', count($uploadDuplicates)).'</p><ul>';
+	foreach ($uploadDuplicates as $duplicate) {
+		print '<li><strong>'.dol_escape_htmltag($duplicate['filename']).'</strong>';
+		if (!empty($duplicate['target_url'])) {
+			print ' &mdash; <a href="'.dol_escape_htmltag($duplicate['target_url']).'">'.dol_escape_htmltag($duplicate['target_label']).'</a>';
+		} elseif (!empty($duplicate['target_label'])) {
+			print ' &mdash; '.dol_escape_htmltag($duplicate['target_label']);
+		}
+		print '</li>';
+	}
+	print '</ul></div>';
+	print '<script>jQuery(function(){jQuery("#upload-duplicates-dialog").dialog({modal:true,width:Math.min(700,window.innerWidth-40),maxHeight:window.innerHeight-80,buttons:[{text:"'.dol_escape_js($langs->transnoentitiesnoconv('Close')).'",click:function(){jQuery(this).dialog("close");}}]});});</script>';
+}
 
 // Upload form on the upload view and the overview - not in the status lists
 if (($mode === 'upload' || $searchStatus === '') && $user->hasRight('auvorechnungsimport', 'imports', 'write')) {
@@ -293,6 +334,7 @@ $arrayfields = array(
 	'date' => array('label' => 'DateCreation', 'checked' => '1', 'position' => 30),
 	'method' => array('label' => 'AuvoRechnungsimportExtractionMethod', 'checked' => '1', 'position' => 40),
 	'source' => array('label' => 'AuvoRechnungsimportSource', 'checked' => '1', 'position' => 50),
+	'file_hash' => array('label' => 'AuvoRechnungsimportFileHash', 'checked' => '0', 'position' => 55),
 	'supplier' => array('label' => 'ThirdParty', 'checked' => '1', 'position' => 60),
 	'invoice_ref' => array('label' => 'RefSupplier', 'checked' => '1', 'position' => 70),
 	'amount' => array('label' => 'AmountTTC', 'checked' => '1', 'position' => 80),
@@ -325,6 +367,7 @@ $columnTitles = array(
 	'date' => array($langs->trans('DateCreation'), 't.date_creation'),
 	'method' => array($langs->trans('AuvoRechnungsimportExtractionMethod'), 't.extraction_method'),
 	'source' => array($langs->trans('AuvoRechnungsimportSource'), 't.source'),
+	'file_hash' => array($langs->trans('AuvoRechnungsimportFileHash'), 't.file_hash'),
 	'supplier' => array($langs->trans('ThirdParty'), ''),
 	'invoice_ref' => array($langs->trans('RefSupplier'), ''),
 	'amount' => array($langs->trans('AmountTTC'), ''),
@@ -373,6 +416,7 @@ if (is_array($records) && count($records) > 0) {
 		$source = strtolower((string) ($rec->source ?? 'unknown'));
 		$sourceLabel = $source === 'emailcollector' ? 'AuvoRechnungsimportSourceEmail' : ($source === 'upload' ? 'AuvoRechnungsimportSourceUpload' : 'AuvoRechnungsimportSourceUnknown');
 		$row['source'] = $langs->trans($sourceLabel);
+		$row['file_hash'] = !empty($rec->file_hash) ? '<code class="wordbreak">'.dol_escape_htmltag($rec->file_hash).'</code>' : '';
 		$data = $rec->getExtractedData();
 		$row['supplier'] = '';
 		$invoiceSupplierId = 0;
@@ -402,10 +446,25 @@ if (is_array($records) && count($records) > 0) {
 			$row['supplier'] = '<span class="opacitymedium">'.$langs->trans('AuvoRechnungsimportNoSupplierMatch').'</span>';
 		}
 		$row['invoice_ref'] = dol_escape_htmltag($data['invoice_ref'] ?? '');
+		if ((int) $rec->status === ImportedInvoice::STATUS_DUPLICATE && !empty($data['duplicate_of_import_id'])) {
+			$duplicateUrl = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.(int) $data['duplicate_of_import_id'];
+			$duplicateImportLink = '<a href="'.dol_escape_htmltag($duplicateUrl).'">'.dol_escape_htmltag((string) ($data['duplicate_of_import_ref'] ?? $langs->trans('AuvoRechnungsimportPriorImport'))).'</a>';
+			$row['invoice_ref'] .= '<br><span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportDuplicateOf').' '.$duplicateImportLink;
+			if ($linkedInvoiceLink !== '') $row['invoice_ref'] .= ' · '.$linkedInvoiceLink;
+			$row['invoice_ref'] .= '</span>';
+		}
+		if ((int) $rec->status === ImportedInvoice::STATUS_DUPLICATE && !empty($data['duplicate_of_ecm_id'])) {
+			$businessUrl = auvorechnungsimport_ecm_business_object_url($data['duplicate_of_ecm_object_type'] ?? '', $data['duplicate_of_ecm_object_id'] ?? 0);
+			if ($businessUrl !== '') {
+				$row['invoice_ref'] .= '<br><span class="opacitymedium small"><a href="'.dol_escape_htmltag($businessUrl).'">'.$langs->trans('AuvoRechnungsimportEcmLinkedBusinessDoc').'</a></span>';
+			}
+			$ecmUrl = DOL_URL_ROOT.'/ecm/file_card.php?id='.(int) $data['duplicate_of_ecm_id'];
+			$row['invoice_ref'] .= '<br><span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportDuplicateOf').' <a href="'.dol_escape_htmltag($ecmUrl).'">'.dol_escape_htmltag((string) $data['duplicate_of_ecm_filename']).'</a></span>';
+		}
 		if ((int) $rec->status === ImportedInvoice::STATUS_IMPORTED && $linkedInvoiceLink !== '') {
 			$row['invoice_ref'] .= '<br><span class="opacitymedium small">'.$linkedInvoiceLink.'</span>';
 		}
-		if ((int) $rec->status === ImportedInvoice::STATUS_DUPLICATE && $linkedInvoiceLink !== '') {
+		if ((int) $rec->status === ImportedInvoice::STATUS_DUPLICATE && empty($data['duplicate_of_import_id']) && $linkedInvoiceLink !== '') {
 			$row['invoice_ref'] .= '<br><span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportDuplicateOf').' '.$linkedInvoiceLink.'</span>';
 		}
 		$row['amount'] = isset($data['amount_ttc']) && $data['amount_ttc'] !== null ? price($data['amount_ttc']) : '';

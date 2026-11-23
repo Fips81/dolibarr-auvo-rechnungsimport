@@ -24,7 +24,6 @@ if (!function_exists('dol_syslog')) {
 		// The standalone parser tests do not bootstrap Dolibarr's logger.
 	}
 }
-// Same as the module's helper (core/lib/auvorechnungsimport.lib.php)
 function auvorechnungsimport_normalize_vat($vat)
 {
 	return strtoupper(preg_replace('/[\s.\-]/', '', (string) $vat));
@@ -127,6 +126,14 @@ $fab = auvorechnungsimport_einvoice_to_fields($ab);
 eq('22/180/80394', $fab['supplier_tax_id'], 'import: tax number for supplier matching');
 eq('', $fab['supplier_vat'], 'import: tax number remains distinct from VAT ID');
 eq(1, $fab['attachments'], 'import: attachment count');
+eq('DE_KLEINUNTERNEHMER_19', $fab['vat_treatment'], '§19 VAT treatment detected from XML exemption text');
+foreach ($fab['lines'] as $line) {
+	eq(0.0, $line['vat_rate'], '§19 XML line has zero VAT');
+	eq('K19', $line['vat_src_code'], '§19 XML line carries source code');
+}
+foreach (array('§ 19, Abs. 1 UStG', "§19\nAbsatz 1 UStG", '§ 19 Abs. 1 Umsatzsteuergesetz', 'gemäß §19 UStG', 'Kleinunternehmerregelung') as $smallBusinessText) {
+	check(auvorechnungsimport_einvoice_is_small_business_note($smallBusinessText), '§19 note recognized: '.$smallBusinessText);
+}
 
 // CII with two attachments
 $an = load('xrechnung-cii-anlagen.xml');

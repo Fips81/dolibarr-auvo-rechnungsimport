@@ -13,11 +13,17 @@ Notable changes to AuVo Rechnungsimport are documented here.
   enabled, including a Base64 copy and SHA-256 hash of the original file.
 - Validate invoice totals before creating supplier invoices and require a
   manual review of detected supplier data and line handling.
+- Block accidental self-supplier creation by comparing the detected supplier
+  with the configured company name and user-configured company aliases.
 - Protect supplier invoices recorded in BlockedLog from normal editing,
   unvalidation, line changes, and deletion.
 - Add source, reminder-count, and last-reminder columns to the import list and
   allow users to choose which columns they see.
 - Reject XML documents containing DTD or entity declarations.
+- Hash incoming PDF files and automatically classify exact file duplicates,
+  linking to the earlier import and, when available, its booked supplier invoice.
+- When ECM is enabled, use its MD5 content index to locate candidate files and
+  confirm matches with SHA-256 and the stored file before classifying duplicates.
 
 ### Upgrade notes
 

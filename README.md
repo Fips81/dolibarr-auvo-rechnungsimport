@@ -236,9 +236,25 @@ einmal):
   stellen Dateien weiterhin in dieselbe Queue. Der Cronrunner braucht Zugriff
   auf Poppler und Tesseract. Der tägliche Erinnerungsjob benötigt zusätzlich
   eine gültige Empfängeradresse in den Moduleinstellungen.
+- Bei PDF-Eingängen wird zusätzlich SHA-256 gespeichert. Ein byte-identisches
+  PDF wird automatisch als Duplikat des früheren Imports markiert; existiert
+  bereits eine gebuchte Lieferantenrechnung, wird auch diese verknüpft. Beim
+  ersten Treffer werden vorhandene PDF-Importe ohne Hash nach Möglichkeit
+  anhand ihrer gespeicherten Originaldatei nachgehasht. Wenn ECM aktiviert ist,
+  wird zusätzlich dessen MD5-Index durchsucht; ein Treffer wird durch erneuten
+  SHA-256-Vergleich der gespeicherten Datei bestätigt. ECM-Dateien müssen dafür
+  im ECM-Index registriert sein.
 - **Durchgehen**: Filter „Zu prüfen“, Button „Prüfen starten“, auf der Karte
   „Nächste prüfen“ und nach dem Anlegen ein Link zur nächsten Rechnung.
   „Erneut erkennen“ stellt den Import ebenfalls wieder in die Cron-Queue.
+- Alternative Schreibweisen des eigenen Unternehmens können in den
+  Moduleinstellungen mit Semikolons getrennt hinterlegt werden. Wird ein solcher Name als Lieferant
+  erkannt, blockiert das Modul die Neuanlage und verlangt die Auswahl eines
+  externen Lieferanten.
+- In der Review-Ansicht kann zwischen vorhandenem und neuem Lieferanten gewählt
+  werden. Die Neuanlage braucht die aktivierte Option und das Geschäftspartner-
+  Anlegerecht; die bewusste Auswahl „Neuer Lieferant“ erlaubt auch, einen OCR-
+  Namen vor dem Anlegen manuell zu prüfen.
 - Regex-Heuristiken in Schritt 2/3 sind best effort und decken nicht jedes
   Rechnungslayout ab – deshalb immer ein Prüfschritt vor dem Anlegen der
   Lieferantenrechnung.
@@ -256,6 +272,21 @@ KoSIT-Testsuite herunter und prüft 86 XML-Beispiele. Dafür werden Bash, PHP CL
 `curl`, `sha256sum` und Python 3 benötigt; den Python-Interpreter kann man über
 `PYTHON` vorgeben. Beide Prüfungen und ein PHP-Syntaxcheck laufen in der
 GitHub-CI bei Pushes und Pull Requests.
+
+`tests/fixtures/text-no-vat-gross-integer-amount.pdf` ist eine anonymisierte
+PDF-Regressionsdatei für die Text-/OCR-Erkennung: Sie enthält einen ganzzahligen
+Betrag in deutscher Schreibweise (`625,-`) und einen Hinweis auf die
+Kleinunternehmerregelung. Erwartet wird eine erkannte Position zum Bruttopreis;
+der Steuersatz bleibt leer und muss in der Prüfansicht ausdrücklich bestätigt
+werden (hier mit `0`). Die PDF-Erkennung benötigt die lokale Dolibarr-Umgebung
+und deren PDF-/OCR-Werkzeuge; sie ist deshalb nicht Teil des eigenständigen
+XML-Testlaufs.
+
+`php tests/pdf-text-tests.php` prüft mit der mitgelieferten anonymisierten
+PDF-Datei `tests/fixtures/text-sender-name-linebreak.pdf`, dass ein über zwei
+Zeilen umbrochener Absendername („Sportgemeinschaft“ / „Zusammenspiel e V“)
+vollständig und als sicherer Firmenname erkannt wird. Der Test benötigt die
+Dolibarr-Umgebung und die mitgelieferte Bibliothek `smalot/pdfparser`.
 
 Das Release-ZIP entsteht automatisch, sobald ein Tag `vX.Y.Z` gepusht wird
 (`.github/workflows/release-zip.yml`: Tag muss zur Modulversion passen, Tests

@@ -129,14 +129,29 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 			$import->original_filename = $safeName;
 			$import->source = 'emailcollector';
 			$import->filepath = '';
+			$import->file_hash = $extension === 'pdf' ? hash('sha256', $content) : null;
+			$fileMd5 = $extension === 'pdf' ? hash('md5', $content) : '';
+			$hashDuplicate = $extension === 'pdf' ? auvorechnungsimport_find_duplicate_by_hash($this->db, $import->file_hash, 0, $fileMd5) : null;
 			$import->status = $spamFlagged ? ImportedInvoice::STATUS_SPAM_REVIEW : ImportedInvoice::STATUS_QUEUED;
 			if ($spamFlagged) {
 				$import->extracted_data = json_encode(array('spam_detection' => array('header' => $spamHeaderName, 'value' => $spamHeaderValue)));
 			}
+			if ($hashDuplicate) auvorechnungsimport_mark_hash_duplicate($import, $hashDuplicate);
 			$this->db->begin();
 			if ($import->create($user) <= 0) {
 				$this->db->rollback();
 				$errors[] = $safeName;
+				continue;
+			}
+			if ($hashDuplicate) {
+				$mime = $extension === 'pdf' ? 'application/pdf' : 'application/xml';
+				if (auvorechnungsimport_blockedlog_log_auto_duplicate($this->db, $import, $content, $mime, $user, 'emailcollector', $hashDuplicate) < 0) {
+					$this->db->rollback();
+					$errors[] = $safeName;
+					continue;
+				}
+				$this->db->commit();
+				$accepted++;
 				continue;
 			}
 			$dir = $root.'/'.$import->id;

@@ -29,15 +29,54 @@ if (!$res) {
 require_once __DIR__.'/class/importedinvoice.class.php';
 require_once __DIR__.'/core/lib/auvorechnungsimport.lib.php';
 
-if (!isModEnabled('auvorechnungsimport') || !$user->hasRight('auvorechnungsimport', 'imports', 'read')) {
+if (!isModEnabled('auvorechnungsimport')) {
 	accessforbidden();
 }
 
+$isBlockedLogPreview = GETPOSTINT('blockedlogpreview') > 0;
+$canReadImport = $user->hasRight('auvorechnungsimport', 'imports', 'read');
+$canReadBlockedLog = isModEnabled('blockedlog') && ($user->admin || $user->hasRight('blockedlog', 'read'));
+if ($isBlockedLogPreview ? (!$canReadImport && !$canReadBlockedLog) : !$canReadImport) accessforbidden();
+
 $id = GETPOSTINT('id');
 $object = new ImportedInvoice($db);
-if ($id <= 0 || $object->fetch($id) <= 0 || empty($object->filepath)) {
+if ($id <= 0 || $object->fetch($id) <= 0) {
 	accessforbidden('Not found');
 }
+
+// Preview the immutable copy held in BlockedLog. This also works for
+// auto-detected duplicates, which deliberately have no second disk copy.
+if ($isBlockedLogPreview) {
+	if (!isModEnabled('blockedlog')) accessforbidden('Not found');
+	require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
+	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE element = 'importedinvoice' AND fk_object = ".((int) $object->id);
+	$sql .= " AND action IN ('AUVORECHNUNGSIMPORT_RECEIVED', 'AUVORECHNUNGSIMPORT_DUPLICATE_AUTO') AND entity = ".((int) $object->entity)." ORDER BY rowid DESC".$db->plimit(1);
+	$resql = $db->query($sql);
+	$block = null;
+	if ($resql && ($row = $db->fetch_object($resql))) {
+		$block = new BlockedLog($db);
+		if ($block->fetch((int) $row->rowid) <= 0) $block = null;
+	}
+	if ($resql) $db->free($resql);
+	$data = $block ? $block->object_data : null;
+	$binary = is_object($data) ? base64_decode((string) ($data->content_base64 ?? ''), true) : false;
+	if ($binary === false || $binary === '' || !hash_equals(strtolower((string) ($data->sha256 ?? '')), hash('sha256', $binary))) {
+		accessforbidden('Not found');
+	}
+	$mime = (string) ($data->mime_type ?? 'application/octet-stream');
+	$inline = $mime === 'application/pdf';
+	if (!$inline && !in_array($mime, array('application/xml', 'text/xml'), true)) $mime = 'application/octet-stream';
+	$name = dol_sanitizeFileName((string) ($data->filename ?? $object->original_filename));
+	header('Content-Type: '.$mime);
+	header('Content-Disposition: '.($inline ? 'inline' : 'attachment').'; filename="'.$name.'"');
+	header('X-Content-Type-Options: nosniff');
+	header('Cache-Control: private, no-store, max-age=0');
+	header('Content-Length: '.strlen($binary));
+	print $binary;
+	exit;
+}
+
+if (empty($object->filepath)) accessforbidden('Not found');
 
 $fullpath = auvorechnungsimport_resolve_file($object->filepath);
 if ($fullpath === false) {

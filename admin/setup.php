@@ -40,6 +40,10 @@ if ($action == 'update') {
 		dolibarr_set_const($db, $const, trim(GETPOST($const, 'alphanohtml')), 'chaine', 0, '', $conf->entity);
 	}
 	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER', GETPOSTINT('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? 1 : 0, 'chaine', 0, '', $conf->entity);
+	$ownCompanyAliases = GETPOST('AUVORECHNUNGSIMPORT_OWN_COMPANY_ALIASES', 'restricthtml');
+	$ownCompanyAliases = str_replace(array('\\r\\n', '\\n', '\\r', "\r\n", "\r", "\n"), ';', $ownCompanyAliases);
+	$ownCompanyAliases = preg_replace('/\s*;\s*/u', '; ', trim($ownCompanyAliases, "; \t"));
+	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_OWN_COMPANY_ALIASES', $ownCompanyAliases, 'chaine', 0, '', $conf->entity);
 	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE', GETPOSTINT('AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE') ? 1 : 0, 'chaine', 0, '', $conf->entity);
 	$reminderEmail = trim(GETPOST('AUVORECHNUNGSIMPORT_REMINDER_EMAIL', 'alphanohtml'));
 	if ($reminderEmail !== '' && !isValidEmail($reminderEmail)) {
@@ -105,6 +109,10 @@ foreach (array('AUVORECHNUNGSIMPORT_KEYWORDS_COST' => 'AuvoRechnungsimportKeywor
 print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportAutocreateSupplier').'</td><td>';
 print '<input type="checkbox" name="AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? ' checked' : '').'> <span class="opacitymedium">'.$langs->trans('AuvoRechnungsimportAutocreateSupplierHelp').'</span>';
 print '</td></tr>';
+$ownCompanyAliases = getDolGlobalString('AUVORECHNUNGSIMPORT_OWN_COMPANY_ALIASES');
+$ownCompanyAliases = str_replace(array('\\r\\n', '\\n', '\\r', "\r\n", "\r", "\n"), ';', $ownCompanyAliases);
+$ownCompanyAliases = preg_replace('/\s*;\s*/u', '; ', trim($ownCompanyAliases, "; \t"));
+print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportOwnCompanyAliases').'<br><span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportOwnCompanyAliasesHelp').'</span></td><td><input type="text" name="AUVORECHNUNGSIMPORT_OWN_COMPANY_ALIASES" class="minwidth400 centpercent" value="'.dol_escape_htmltag($ownCompanyAliases).'"></td></tr>';
 
 print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportBlockedLogEnable').'</td><td>';
 print '<input type="checkbox" name="AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE') ? ' checked' : '').'> <span class="opacitymedium">'.$langs->trans('AuvoRechnungsimportBlockedLogEnableHelp').'</span>';

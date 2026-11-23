@@ -24,12 +24,275 @@ if (file_exists(__DIR__.'/../../vendor/autoload.php')) {
 require_once __DIR__.'/auvorechnungsimport_einvoice.php';
 require_once __DIR__.'/auvorechnungsimport_view.php';
 
+/** Find an earlier import with the same SHA-256, preferring a booked invoice. */
+function auvorechnungsimport_find_duplicate_by_hash($db, $hash, $excludeId = 0, $md5 = '')
+{
+	$hash = strtolower(trim((string) $hash));
+	if (!preg_match('/^[a-f0-9]{64}$/', $hash)) return null;
+	// Backfill legacy PDF imports lazily so the first new arrival can match files
+	// received before file hashes were introduced. Successfully hashed rows are
+	// skipped on later calls.
+	$sqlLegacy = "SELECT rowid, filepath FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
+	$sqlLegacy .= " WHERE (file_hash IS NULL OR file_hash = '') AND LOWER(original_filename) LIKE '%.pdf'";
+	$sqlLegacy .= " AND entity IN (".getEntity('importedinvoice').") ORDER BY rowid ASC";
+	$resLegacy = $db->query($sqlLegacy);
+	while ($resLegacy && ($legacy = $db->fetch_object($resLegacy))) {
+		$legacyPath = auvorechnungsimport_resolve_file((string) $legacy->filepath);
+		if ($legacyPath === false) continue;
+		$legacyHash = hash_file('sha256', $legacyPath);
+		if ($legacyHash === false) continue;
+		$sqlUpdateHash = "UPDATE ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice SET file_hash = '".$db->escape($legacyHash)."'";
+		$sqlUpdateHash .= " WHERE rowid = ".((int) $legacy->rowid)." AND (file_hash IS NULL OR file_hash = '')";
+		$db->query($sqlUpdateHash);
+	}
+	$sql = "SELECT rowid, ref, status, fk_facture_fourn, extracted_data FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
+	$sql .= " WHERE file_hash = '".$db->escape($hash)."' AND entity IN (".getEntity('importedinvoice').")";
+	if ($excludeId > 0) $sql .= " AND rowid <> ".((int) $excludeId);
+	$sql .= " ORDER BY CASE WHEN status = ".((int) ImportedInvoice::STATUS_IMPORTED)." AND fk_facture_fourn > 0 THEN 0 WHEN fk_facture_fourn > 0 THEN 1 ELSE 2 END, date_creation ASC, rowid ASC".$db->plimit(1);
+	$resql = $db->query($sql);
+	$match = null;
+	if ($resql && ($row = $db->fetch_object($resql))) {
+		$match = array('source' => 'import', 'id' => (int) $row->rowid, 'ref' => (string) $row->ref, 'fk_facture_fourn' => (int) $row->fk_facture_fourn);
+		// Keep chains short: if this match was itself a hash duplicate, point to its original import.
+		$metadata = json_decode((string) $row->extracted_data, true);
+		$canonicalId = (int) ($metadata['duplicate_of_import_id'] ?? 0);
+		if ($canonicalId > 0 && $canonicalId !== $match['id']) {
+			$sqlCanonical = "SELECT rowid, ref, fk_facture_fourn FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
+			$sqlCanonical .= " WHERE rowid = ".$canonicalId." AND entity IN (".getEntity('importedinvoice').")".$db->plimit(1);
+			$resCanonical = $db->query($sqlCanonical);
+			if ($resCanonical && ($canonical = $db->fetch_object($resCanonical))) {
+				$match['id'] = (int) $canonical->rowid;
+				$match['ref'] = (string) $canonical->ref;
+				if ((int) $canonical->fk_facture_fourn > 0) $match['fk_facture_fourn'] = (int) $canonical->fk_facture_fourn;
+			}
+		}
+	}
+
+	// ECM's label is the MD5 of file contents. Only trust an indexed row if its
+	// physical file still exists beneath the Dolibarr data root and verifies.
+	$md5 = strtolower(trim((string) $md5));
+	if ($md5 !== '' && preg_match('/^[a-f0-9]{32}$/', $md5) && isModEnabled('ecm')) {
+		$sqlEcm = "SELECT rowid, filepath, filename, src_object_type, src_object_id FROM ".MAIN_DB_PREFIX."ecm_files";
+		$sqlEcm .= " WHERE label = '".$db->escape($md5)."' AND entity IN (".getEntity('ecmfiles').") ORDER BY rowid ASC".$db->plimit(20);
+		$resEcm = $db->query($sqlEcm);
+		$root = realpath(DOL_DATA_ROOT);
+		while ($resEcm && ($ecm = $db->fetch_object($resEcm))) {
+			if ($root === false) break;
+			$path = realpath($root.DIRECTORY_SEPARATOR.(string) $ecm->filepath.DIRECTORY_SEPARATOR.(string) $ecm->filename);
+			$prefix = rtrim($root, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR;
+			if ($path === false || strncmp($path, $prefix, strlen($prefix)) !== 0 || !is_file($path) || !is_readable($path)) continue;
+			if (md5_file(dol_osencode($path)) !== $md5 || hash_file('sha256', dol_osencode($path)) !== $hash) continue;
+			$ecmMatch = array('source' => 'ecm', 'id' => 0, 'ref' => '', 'ecm_id' => (int) $ecm->rowid, 'filename' => (string) $ecm->filename, 'fk_facture_fourn' => 0);
+			if ($match) {
+				$ecmMatch['import_id'] = (int) $match['id'];
+				$ecmMatch['import_ref'] = (string) $match['ref'];
+				if (!empty($match['fk_facture_fourn'])) $ecmMatch['fk_facture_fourn'] = (int) $match['fk_facture_fourn'];
+			}
+			if (!empty($ecm->src_object_id)) {
+				$ecmMatch['object_type'] = (string) $ecm->src_object_type;
+				$ecmMatch['object_id'] = (int) $ecm->src_object_id;
+			}
+			if (!empty($ecm->src_object_id) && in_array((string) $ecm->src_object_type, array('facture_fourn', 'supplier_invoice'), true)) {
+				require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.facture.class.php';
+				$invoice = new FactureFournisseur($db);
+				if ($invoice->fetch((int) $ecm->src_object_id) > 0) $ecmMatch['fk_facture_fourn'] = (int) $invoice->id;
+			}
+			// An exact ECM file match is itself sufficient. Prefer it over a module
+			// import match so the duplicate points at the already linked business doc.
+			return $ecmMatch;
+		}
+	}
+	return $match;
+}
+
+/** Build a Dolibarr card URL for a supported ECM source object. */
+function auvorechnungsimport_ecm_business_object_url($type, $id)
+{
+	$id = (int) $id;
+	if ($id <= 0) return '';
+	$routes = array(
+		'facture_fourn' => array('/fourn/facture/card.php', 'id'),
+		'supplier_invoice' => array('/fourn/facture/card.php', 'id'),
+		'invoice_supplier' => array('/fourn/facture/card.php', 'id'),
+		'facture' => array('/compta/facture/card.php', 'facid'),
+		'commande_fournisseur' => array('/fourn/commande/card.php', 'id'),
+		'order_supplier' => array('/fourn/commande/card.php', 'id'),
+		'commande' => array('/commande/card.php', 'id'),
+		'order' => array('/commande/card.php', 'id'),
+		'propal' => array('/comm/propal/card.php', 'id'),
+		'proposal' => array('/comm/propal/card.php', 'id'),
+		'societe' => array('/societe/card.php', 'socid'),
+		'company' => array('/societe/card.php', 'socid'),
+		'product' => array('/product/card.php', 'id'),
+		'project' => array('/projet/card.php', 'id'),
+		'expedition' => array('/expedition/card.php', 'id'),
+	);
+	$type = strtolower(trim((string) $type));
+	if (!isset($routes[$type])) return '';
+	return DOL_URL_ROOT.$routes[$type][0].'?'.$routes[$type][1].'='.$id;
+}
+
+/** Return a safe card link for a known duplicate target. */
+function auvorechnungsimport_duplicate_target_link($match)
+{
+	global $langs;
+	if (is_object($langs)) $langs->load('auvorechnungsimport');
+	if (!empty($match['fk_facture_fourn'])) {
+		return array(
+			'url' => DOL_URL_ROOT.'/fourn/facture/card.php?id='.(int) $match['fk_facture_fourn'],
+			'label' => is_object($langs) ? $langs->trans('AuvoRechnungsimportLinkedSupplierInvoice', (int) $match['fk_facture_fourn']) : 'Supplier invoice #'.(int) $match['fk_facture_fourn'],
+		);
+	}
+	if (!empty($match['id'])) {
+		return array(
+			'url' => dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.(int) $match['id'],
+			'label' => (string) ($match['ref'] ?? ''),
+		);
+	}
+	if (!empty($match['object_type']) && !empty($match['object_id'])) {
+		$url = auvorechnungsimport_ecm_business_object_url($match['object_type'], $match['object_id']);
+		if ($url !== '') return array('url' => $url, 'label' => is_object($langs) ? $langs->trans('AuvoRechnungsimportEcmLinkedBusinessDoc') : 'Linked business document');
+	}
+	if (!empty($match['ecm_id'])) {
+		return array(
+			'url' => DOL_URL_ROOT.'/ecm/file_card.php?id='.(int) $match['ecm_id'],
+			'label' => is_object($langs) ? $langs->trans('AuvoRechnungsimportLinkedEcmFile', (string) ($match['filename'] ?? '')) : (string) ($match['filename'] ?? 'ECM file'),
+		);
+	}
+	return array('url' => '', 'label' => (string) ($match['ref'] ?? $match['import_ref'] ?? ''));
+}
+
+/** Build metadata and status fields for a newly received hash duplicate. */
+function auvorechnungsimport_mark_hash_duplicate($object, $match)
+{
+	if (empty($match['id']) && empty($match['ecm_id'])) return;
+	$data = $object->getExtractedData();
+	if (!empty($match['id'])) {
+		$data['duplicate_of_import_id'] = (int) $match['id'];
+		$data['duplicate_of_import_ref'] = (string) $match['ref'];
+	}
+	if (!empty($match['ecm_id'])) {
+		$data['duplicate_of_ecm_id'] = (int) $match['ecm_id'];
+		$data['duplicate_of_ecm_filename'] = (string) $match['filename'];
+		if (!empty($match['object_type']) && !empty($match['object_id'])) {
+			$data['duplicate_of_ecm_object_type'] = (string) $match['object_type'];
+			$data['duplicate_of_ecm_object_id'] = (int) $match['object_id'];
+		}
+	}
+	$data['duplicate_reason'] = !empty($match['ecm_id']) ? 'ecm_md5' : 'sha256';
+	$object->extracted_data = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+	$object->status = ImportedInvoice::STATUS_DUPLICATE;
+	if (!empty($match['fk_facture_fourn'])) $object->fk_facture_fourn = (int) $match['fk_facture_fourn'];
+}
+
+/** Shared setup, create call and failure handling for module BlockedLog events. */
+function auvorechnungsimport_blockedlog_write($db, $user, $action, $element, $objectId, $entity, $ref, $linkType, $linkRef, $objectData, $options = array())
+{
+	global $conf, $langs;
+	if (!isModEnabled('blockedlog')) return -1;
+	require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
+
+	$block = new BlockedLog($db);
+	$block->action = (string) $action;
+	$block->module_source = 'auvorechnungsimport';
+	$block->amounts = (float) ($options['amounts'] ?? 0);
+	$block->amounts_taxexcl = (float) ($options['amounts_taxexcl'] ?? 0);
+	$block->element = (string) $element;
+	$block->fk_object = (int) $objectId;
+	$block->entity = (int) ($entity ?: $conf->entity);
+	$block->ref_object = (string) $ref;
+	$block->linktype = (string) $linkType;
+	$block->linktoref = (string) $linkRef;
+	$block->date_object = $options['date_object'] ?? dol_now();
+	$block->fk_user = (int) ($user->id ?? 0);
+	$block->user_fullname = !empty($options['user_fullname']) ? (string) $options['user_fullname'] : (!empty($user->id) ? $user->getFullName($langs) : '(Anonymous)');
+	$block->object_data = is_object($objectData) ? $objectData : (object) $objectData;
+	$result = $block->create($user);
+	if ($result <= 0) {
+		dol_syslog('AuvoRechnungsimport: BlockedLog event '.$action.' failed: '.$block->error, LOG_ERR);
+		return -1;
+	}
+	return $result;
+}
+
+/** Get the first immutable receipt record and its content hash for an import. */
+function auvorechnungsimport_blockedlog_get_received($db, $importId)
+{
+	if (!isModEnabled('blockedlog') || (int) $importId <= 0) return array('id' => 0, 'sha256' => '');
+	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE action = 'AUVORECHNUNGSIMPORT_RECEIVED' AND element = 'importedinvoice' AND fk_object = ".((int) $importId)." ORDER BY rowid ASC".$db->plimit(1);
+	$resql = $db->query($sql);
+	$info = array('id' => 0, 'sha256' => '');
+	if ($resql && ($row = $db->fetch_object($resql))) {
+		require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
+		$block = new BlockedLog($db);
+		if ($block->fetch((int) $row->rowid) > 0) {
+			$info['id'] = (int) $row->rowid;
+			$info['sha256'] = strtolower((string) ($block->object_data->sha256 ?? ''));
+		}
+	}
+	if ($resql) $db->free($resql);
+	return $info;
+}
+
+/** Core BlockedLog detail popup renders this field as HTML; all dynamic URL parts are escaped. */
+function auvorechnungsimport_blockedlog_preview_markup($importId, $mime)
+{
+	global $langs;
+	$url = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_file.php', 1).'?id='.(int) $importId.'&blockedlogpreview=1';
+	$mime = in_array((string) $mime, array('application/pdf', 'application/xml', 'text/xml'), true) ? (string) $mime : 'application/octet-stream';
+	if (is_object($langs)) {
+		$langs->load('auvorechnungsimport');
+		$title = $langs->trans($mime === 'application/pdf' ? 'AuvoRechnungsimportPreviewLoggedOriginal' : 'AuvoRechnungsimportDownloadLoggedOriginal');
+	} else {
+		$title = 'Preview logged original';
+	}
+	if ($mime === 'application/pdf') {
+		return '<a class="pictopreview documentpreview" href="'.dol_escape_htmltag($url).'" mime="application/pdf" target="_blank" rel="noopener noreferrer" title="'.dol_escape_htmltag($title).'"><span class="fas fa-search-plus pictofixedwidth" style="color:#808080"></span></a>';
+	}
+	return '<a href="'.dol_escape_htmltag($url).'" target="_blank" rel="noopener noreferrer" title="'.dol_escape_htmltag($title).'"><span class="fas fa-download pictofixedwidth" style="color:#808080"></span></a>';
+}
+
+/** Log an automatically detected duplicate without writing another filesystem copy. */
+function auvorechnungsimport_blockedlog_log_auto_duplicate($db, $object, $content, $mime, $user, $source, $match)
+{
+	global $langs;
+	if (!getDolGlobalInt('AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE')) return 1;
+	$content = (string) $content;
+	if ($content === '' || strlen($content) > 10000000) return -2;
+	$data = array(
+		'ref' => (string) $object->ref,
+		'filename' => (string) $object->original_filename,
+		'source' => (string) $source,
+		'mime_type' => (string) $mime,
+		'size' => strlen($content),
+		'sha256' => hash('sha256', $content),
+		'md5' => hash('md5', $content),
+		'duplicate_reason' => (string) ($match['source'] === 'ecm' ? 'ecm_md5' : 'sha256'),
+		'duplicate_of_import_id' => !empty($match['id']) ? (int) $match['id'] : (int) ($match['import_id'] ?? 0),
+		'duplicate_of_import_ref' => !empty($match['ref']) ? (string) $match['ref'] : (string) ($match['import_ref'] ?? ''),
+		'duplicate_of_ecm_id' => (int) ($match['ecm_id'] ?? 0),
+		'duplicate_of_ecm_filename' => (string) ($match['filename'] ?? ''),
+		'duplicate_of_ecm_object_type' => (string) ($match['object_type'] ?? ''),
+		'duplicate_of_ecm_object_id' => (int) ($match['object_id'] ?? 0),
+		'content_base64' => base64_encode($content),
+		'link' => auvorechnungsimport_blockedlog_preview_markup($object->id, $mime),
+	);
+	return auvorechnungsimport_blockedlog_write(
+		$db, $user, 'AUVORECHNUNGSIMPORT_DUPLICATE_AUTO', 'importedinvoice', $object->id, $object->entity,
+		$object->ref,
+		!empty($match['fk_facture_fourn']) ? 'invoice_supplier' : (!empty($match['id']) ? 'importedinvoice' : (string) ($match['object_type'] ?? 'ecm')),
+		!empty($match['ref']) ? (string) $match['ref'] : (!empty($match['import_ref']) ? (string) $match['import_ref'] : (string) ($match['filename'] ?? '')),
+		$data,
+		array('date_object' => $object->date_creation ?: dol_now(), 'user_fullname' => !empty($user->id) ? $user->getFullName($langs) : '(Email Collector)')
+	);
+}
+
 /** Store the first received copy in the signed BlockedLog as Base64. */
 function auvorechnungsimport_blockedlog_store_received_file($db, $object, $path, $user, $source)
 {
-	global $conf, $langs;
+	global $langs;
 	if (!getDolGlobalInt('AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE')) return 1;
-	if (!isModEnabled('blockedlog') || !is_readable($path)) return -1;
+	if (!is_readable($path)) return -1;
 	$existing = $db->query("SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE action = 'AUVORECHNUNGSIMPORT_RECEIVED' AND element = '".$db->escape((string) $object->element)."' AND fk_object = ".((int) $object->id).$db->plimit(1));
 	if ($existing && $db->num_rows($existing) > 0) return 1;
 	$size = filesize($path);
@@ -39,36 +302,23 @@ function auvorechnungsimport_blockedlog_store_received_file($db, $object, $path,
 	}
 	$content = file_get_contents($path);
 	if ($content === false) return -1;
-	require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
-	$block = new BlockedLog($db);
-	$block->action = 'AUVORECHNUNGSIMPORT_RECEIVED';
-	$block->module_source = 'auvorechnungsimport';
-	$block->amounts = 0;
-	$block->amounts_taxexcl = 0;
-	$block->element = $object->element;
-	$block->fk_object = (int) $object->id;
-	$block->entity = (int) ($object->entity ?: $conf->entity);
-	$block->ref_object = (string) $object->ref;
-	$block->linktype = 'importedinvoice';
-	$block->linktoref = (string) $object->ref;
-	$block->date_object = $object->date_creation ?: dol_now();
-	$block->fk_user = (int) ($user->id ?? 0);
-	$block->user_fullname = !empty($user->id) ? $user->getFullName($langs) : '(Email Collector)';
-	$block->object_data = (object) array(
+	$extension = strtolower(pathinfo((string) $object->original_filename, PATHINFO_EXTENSION));
+	$mime = $extension === 'pdf' ? 'application/pdf' : ($extension === 'xml' ? 'application/xml' : (function_exists('mime_content_type') ? (string) mime_content_type($path) : 'application/octet-stream'));
+	$data = array(
 		'ref' => (string) $object->ref,
 		'filename' => (string) $object->original_filename,
 		'source' => (string) $source,
-		'mime_type' => function_exists('mime_content_type') ? (string) mime_content_type($path) : '',
+		'mime_type' => $mime,
 		'size' => (int) $size,
 		'sha256' => hash('sha256', $content),
 		'content_base64' => base64_encode($content),
+		'link' => auvorechnungsimport_blockedlog_preview_markup($object->id, $mime),
 	);
-	$result = $block->create($user);
-	if ($result <= 0) {
-		dol_syslog('AuvoRechnungsimport: BlockedLog receive entry failed: '.$block->error, LOG_ERR);
-		return -1;
-	}
-	return 1;
+	return auvorechnungsimport_blockedlog_write(
+		$db, $user, 'AUVORECHNUNGSIMPORT_RECEIVED', $object->element, $object->id, $object->entity,
+		$object->ref, 'importedinvoice', $object->ref, $data,
+		array('date_object' => $object->date_creation ?: dol_now(), 'user_fullname' => !empty($user->id) ? $user->getFullName($langs) : '(Email Collector)')
+	);
 }
 
 /** Compare a supplier invoice attachment with the hash in the first receipt log. */
@@ -83,13 +333,9 @@ function auvorechnungsimport_verify_invoice_attachment($db, $import, $invoice)
 		if ($hash !== false) $result['attachment_hash'] = strtolower($hash);
 	}
 	if (!isModEnabled('blockedlog')) return $result;
-	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE action = 'AUVORECHNUNGSIMPORT_RECEIVED' AND element = 'importedinvoice' AND fk_object = ".((int) $import->id)." ORDER BY rowid ASC".$db->plimit(1);
-	$resql = $db->query($sql);
-	if (!$resql || !($row = $db->fetch_object($resql))) return $result;
-	require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
-	$block = new BlockedLog($db);
-	if ($block->fetch((int) $row->rowid) <= 0 || empty($block->object_data->sha256)) return $result;
-	$result['log_hash'] = strtolower((string) $block->object_data->sha256);
+	$receipt = auvorechnungsimport_blockedlog_get_received($db, $import->id);
+	if ($receipt['sha256'] === '') return $result;
+	$result['log_hash'] = $receipt['sha256'];
 	if (!$result['attachment_exists']) {
 		$result['status'] = 'missing';
 		return $result;
@@ -102,26 +348,9 @@ function auvorechnungsimport_verify_invoice_attachment($db, $import, $invoice)
 /** Record the validated supplier invoice in BlockedLog after review approval. */
 function auvorechnungsimport_blockedlog_log_validated_invoice($db, $invoice, $user, $import)
 {
-	global $conf, $langs;
 	if (!getDolGlobalInt('AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE')) return 1;
-	if (!isModEnabled('blockedlog')) return -1;
-	require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
-	$block = new BlockedLog($db);
-	$block->action = 'BILL_SUPPLIER_VALIDATE';
-	$block->module_source = 'auvorechnungsimport';
-	$block->amounts = (float) $invoice->total_ttc;
-	$block->amounts_taxexcl = (float) $invoice->total_ht;
-	$block->element = $invoice->element;
-	$block->fk_object = (int) $invoice->id;
-	$block->entity = (int) ($invoice->entity ?: $conf->entity);
-	$block->ref_object = (string) $invoice->ref;
-	$block->linktype = 'importedinvoice';
-	$block->linktoref = (string) $import->ref;
-	$block->date_object = $invoice->date;
-	$block->fk_user = (int) $user->id;
-	$block->user_fullname = $user->getFullName($langs);
 	$invoice->fetch_thirdparty();
-	$block->object_data = (object) array(
+	$data = array(
 		'ref' => (string) $invoice->ref,
 		'ref_supplier' => (string) $invoice->ref_supplier,
 		'socid' => (int) $invoice->socid,
@@ -153,45 +382,24 @@ function auvorechnungsimport_blockedlog_log_validated_invoice($db, $invoice, $us
 			'total_ttc' => (float) ($line->total_ttc ?? 0),
 		);
 	}
-	$block->object_data->invoiceline = $lines;
-	return $block->create($user);
+	$data['invoiceline'] = $lines;
+	return auvorechnungsimport_blockedlog_write(
+		$db, $user, 'BILL_SUPPLIER_VALIDATE', $invoice->element, $invoice->id, $invoice->entity,
+		$invoice->ref, 'importedinvoice', $import->ref, $data,
+		array('amounts' => $invoice->total_ttc, 'amounts_taxexcl' => $invoice->total_ht, 'date_object' => $invoice->date)
+	);
 }
 
 /** Record that a received import was explicitly confirmed as a duplicate. */
 function auvorechnungsimport_blockedlog_log_duplicate_confirmation($db, $import, $duplicateInvoice, $user, $supplierRef)
 {
-	global $conf, $langs;
-	if (!isModEnabled('blockedlog')) return -1;
-	require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
+	global $langs;
 	$data = $import->getExtractedData();
-	$receivedHash = '';
-	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE action = 'AUVORECHNUNGSIMPORT_RECEIVED' AND element = 'importedinvoice' AND fk_object = ".((int) $import->id)." ORDER BY rowid ASC".$db->plimit(1);
-	$resql = $db->query($sql);
-	if ($resql && ($row = $db->fetch_object($resql))) {
-		$receipt = new BlockedLog($db);
-		if ($receipt->fetch((int) $row->rowid) > 0 && !empty($receipt->object_data->sha256)) {
-			$receivedHash = strtolower((string) $receipt->object_data->sha256);
-		}
-	}
-	if ($resql) $db->free($resql);
-	$block = new BlockedLog($db);
-	$block->action = 'AUVORECHNUNGSIMPORT_DUPLICATE_CONFIRMED';
-	$block->module_source = 'auvorechnungsimport';
-	$block->amounts = isset($data['amount_ttc']) ? (float) $data['amount_ttc'] : 0;
-	$block->amounts_taxexcl = 0;
-	$block->element = 'importedinvoice';
-	$block->fk_object = (int) $import->id;
-	$block->entity = (int) ($import->entity ?: $conf->entity);
-	$block->ref_object = (string) $import->ref;
-	$block->linktype = 'invoice_supplier';
-	$block->linktoref = (string) $duplicateInvoice->ref;
-	$block->date_object = dol_now();
-	$block->fk_user = (int) $user->id;
-	$block->user_fullname = $user->getFullName($langs);
-	$block->object_data = (object) array(
+	$receipt = auvorechnungsimport_blockedlog_get_received($db, $import->id);
+	$objectData = array(
 		'import_ref' => (string) $import->ref,
 		'original_filename' => (string) $import->original_filename,
-		'received_sha256' => $receivedHash,
+		'received_sha256' => $receipt['sha256'],
 		'supplier_id' => (int) $duplicateInvoice->socid,
 		'supplier_invoice_id' => (int) $duplicateInvoice->id,
 		'supplier_invoice_ref' => (string) $duplicateInvoice->ref,
@@ -199,61 +407,68 @@ function auvorechnungsimport_blockedlog_log_duplicate_confirmation($db, $import,
 		'confirmed_by' => $user->getFullName($langs),
 		'confirmed_at' => dol_print_date(dol_now(), '%Y-%m-%d %H:%M:%S', 'gmt'),
 	);
-	$result = $block->create($user);
-	if ($result <= 0) {
-		dol_syslog('AuvoRechnungsimport: BlockedLog duplicate confirmation failed: '.$block->error, LOG_ERR);
-		return -1;
-	}
-	return 1;
+	return auvorechnungsimport_blockedlog_write(
+		$db, $user, 'AUVORECHNUNGSIMPORT_DUPLICATE_CONFIRMED', 'importedinvoice', $import->id, $import->entity,
+		$import->ref, 'invoice_supplier', $duplicateInvoice->ref, $objectData,
+		array('amounts' => $data['amount_ttc'] ?? 0)
+	);
 }
 
 /** Record that a user explicitly confirmed a flagged email attachment as spam. */
 function auvorechnungsimport_blockedlog_log_spam_confirmation($db, $import, $user)
 {
-	global $conf, $langs;
-	if (!isModEnabled('blockedlog')) return -1;
-	require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
+	global $langs;
 	$data = $import->getExtractedData();
 	$spamDetection = is_array($data['spam_detection'] ?? null) ? $data['spam_detection'] : array();
-	$receivedHash = '';
-	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE action = 'AUVORECHNUNGSIMPORT_RECEIVED' AND element = 'importedinvoice' AND fk_object = ".((int) $import->id)." ORDER BY rowid ASC".$db->plimit(1);
-	$resql = $db->query($sql);
-	if ($resql && ($row = $db->fetch_object($resql))) {
-		$receipt = new BlockedLog($db);
-		if ($receipt->fetch((int) $row->rowid) > 0 && !empty($receipt->object_data->sha256)) {
-			$receivedHash = strtolower((string) $receipt->object_data->sha256);
-		}
-	}
-	if ($resql) $db->free($resql);
-	$block = new BlockedLog($db);
-	$block->action = 'AUVORECHNUNGSIMPORT_SPAM_CONFIRMED';
-	$block->module_source = 'auvorechnungsimport';
-	$block->amounts = 0;
-	$block->amounts_taxexcl = 0;
-	$block->element = 'importedinvoice';
-	$block->fk_object = (int) $import->id;
-	$block->entity = (int) ($import->entity ?: $conf->entity);
-	$block->ref_object = (string) $import->ref;
-	$block->linktype = 'importedinvoice';
-	$block->linktoref = (string) $import->ref;
-	$block->date_object = dol_now();
-	$block->fk_user = (int) ($user->id ?? 0);
-	$block->user_fullname = !empty($user->id) ? $user->getFullName($langs) : '(Email Collector)';
-	$block->object_data = (object) array(
+	$receipt = auvorechnungsimport_blockedlog_get_received($db, $import->id);
+	$objectData = array(
 		'import_ref' => (string) $import->ref,
 		'original_filename' => (string) $import->original_filename,
 		'source' => (string) $import->source,
-		'received_sha256' => $receivedHash,
+		'received_sha256' => $receipt['sha256'],
 		'matched_header' => (string) ($spamDetection['header'] ?? ''),
 		'matched_value' => (string) ($spamDetection['value'] ?? ''),
 		'confirmed_by' => !empty($user->id) ? $user->getFullName($langs) : '(Anonymous)',
 		'confirmed_at' => dol_print_date(dol_now(), '%Y-%m-%d %H:%M:%S', 'gmt'),
 	);
-	if ($block->create($user) <= 0) {
-		dol_syslog('AuvoRechnungsimport: BlockedLog spam confirmation failed: '.$block->error, LOG_ERR);
-		return -1;
+	return auvorechnungsimport_blockedlog_write(
+		$db, $user, 'AUVORECHNUNGSIMPORT_SPAM_CONFIRMED', 'importedinvoice', $import->id, $import->entity,
+		$import->ref, 'importedinvoice', $import->ref, $objectData
+	);
+}
+
+/** Record an import deletion inside the transaction that removes the row. */
+function auvorechnungsimport_blockedlog_log_import_deleted($db, $import, $user, $filePath = false)
+{
+	global $langs;
+	$receipt = auvorechnungsimport_blockedlog_get_received($db, $import->id);
+
+	$fileHash = strtolower(trim((string) $import->file_hash));
+	if ($filePath !== false && is_readable($filePath)) {
+		$diskHash = hash_file('sha256', $filePath);
+		if ($diskHash !== false) $fileHash = strtolower($diskHash);
 	}
-	return 1;
+	$data = $import->getExtractedData();
+	$objectData = array(
+		'import_id' => (int) $import->id,
+		'import_ref' => (string) $import->ref,
+		'original_filename' => (string) $import->original_filename,
+		'source' => (string) $import->source,
+		'status_before_delete' => (int) $import->status,
+		'extraction_method' => (string) $import->extraction_method,
+		'invoice_ref' => (string) ($data['invoice_ref'] ?? ''),
+		'linked_supplier_invoice_id' => (int) $import->fk_facture_fourn,
+		'file_sha256' => $fileHash,
+		'received_log_sha256' => $receipt['sha256'],
+		'received_log_id' => $receipt['id'],
+		'deleted_by' => !empty($user->id) ? $user->getFullName($langs) : '(Anonymous)',
+		'deleted_at' => dol_print_date(dol_now(), '%Y-%m-%d %H:%M:%S', 'gmt'),
+	);
+	return auvorechnungsimport_blockedlog_write(
+		$db, $user, 'AUVORECHNUNGSIMPORT_DELETED', 'importedinvoice', $import->id, $import->entity,
+		$import->ref, 'importedinvoice_deleted', $import->ref, $objectData,
+		array('amounts' => $data['amount_ttc'] ?? 0, 'amounts_taxexcl' => $data['amount_ht'] ?? 0)
+	);
 }
 
 /**
@@ -520,12 +735,14 @@ function auvorechnungsimport_parse_fields($text)
 		$result['invoice_date'] = $m[0];
 	}
 
+	// Accept cent amounts (625,00) and the German no-cents notation (625,- / 625,–).
+	$amountToken = '[0-9]{1,3}(?:[.\s][0-9]{3})*(?:[,.][0-9]{2}|[,.]\s*[-–—]{1,2})';
 	// Total amount: label followed by a number, optionally with currency symbol.
-	if (preg_match('/(?:Gesamtbetrag|Gesamtpreis|Gesamtsumme|Rechnungsbetrag|Rechnungswert|Rechnungsendbetrag|Bruttorechnungswert|Endbetrag|Endsumme|Zahlbetrag|Zu\s*zahlen(?:der\s*Betrag)?|Total\s*TTC|Total\s*à\s*payer|Total\s*due|Montant\s*total)[^\d\n]{0,40}([0-9]{1,3}(?:[.\s][0-9]{3})*[,.][0-9]{2})/iu', $text, $m)) {
+	if (preg_match('/(?:Gesamtbetrag|Gesamtpreis|Gesamtsumme|Rechnungsbetrag|Rechnungswert|Rechnungsendbetrag|Bruttorechnungswert|Endbetrag|Endsumme|Zahlbetrag|Zu\s*zahlen(?:der\s*Betrag)?|Betrag\s+von|Total\s*TTC|Total\s*à\s*payer|Total\s*due|Montant\s*total)[^\d\n]{0,40}('.$amountToken.')/iu', $text, $m)) {
 		$result['amount_ttc'] = auvorechnungsimport_parse_amount($m[1]);
 	}
 	// Net total - only used to cross-check detected invoice lines.
-	if (preg_match('/(?:Netto[- ]?(?:Gesamtwert|Gesamtbetrag|betrag|summe|wert|Warenwert)|Nettosumme|Summe\s*netto|Gesamt\s*netto|Warenwert(?:\s*netto)?|Total\s*HT|Montant\s*HT|Net\s*(?:amount|total)|Subtotal|Netto(?=\s*:))[^\d\n]{0,40}?([0-9]{1,3}(?:[.\s][0-9]{3})*[,.][0-9]{2})/iu', $text, $m)) {
+	if (preg_match('/(?:Netto[- ]?(?:Gesamtwert|Gesamtbetrag|betrag|summe|wert|Warenwert)|Nettosumme|Summe\s*netto|Gesamt\s*netto|Warenwert(?:\s*netto)?|Total\s*HT|Montant\s*HT|Net\s*(?:amount|total)|Subtotal|Netto(?=\s*:))[^\d\n]{0,40}?('.$amountToken.')/iu', $text, $m)) {
 		$result['amount_ht'] = auvorechnungsimport_parse_amount($m[1]);
 	}
 	// Some German invoices print no separate net total, but list the taxable
@@ -581,9 +798,15 @@ function auvorechnungsimport_parse_fields($text)
 		}
 		$candidateLines[] = $line;
 	}
-	foreach ($candidateLines as $line) {
+	foreach ($candidateLines as $lineIndex => $line) {
 		if (preg_match('/(?:\b(?:GmbH|AG|KGaA|KG|OHG|e\.?K\.?|UG|SARL|SASU|SAS|SA|Ltd|Inc|LLC)\b|\be\.?\s?V\.?(?=\W|$))/iu', $line, $legalForm, PREG_OFFSET_CAPTURE)) {
 			$result['supplier_name'] = trim(substr($line, 0, $legalForm[0][1] + strlen($legalForm[0][0])));
+			// OCR often wraps a long organization name at a word boundary. Preserve
+			// common German organization prefixes that appear alone on the previous
+			// line, e.g. "Sportgemeinschaft" + "Johannesberg 1926 e.V.".
+			if ($lineIndex > 0 && preg_match('/^(?:Sportgemeinschaft|Arbeitsgemeinschaft|Interessengemeinschaft|Baugenossenschaft|Wohnungsbaugesellschaft|Erzeugergemeinschaft|Einkaufsgemeinschaft|Verwaltungsgemeinschaft)$/iu', trim($candidateLines[$lineIndex - 1]))) {
+				$result['supplier_name'] = trim($candidateLines[$lineIndex - 1]).' '.$result['supplier_name'];
+			}
 			$result['supplier_name_confident'] = true;
 			break;
 		}
@@ -679,6 +902,70 @@ function auvorechnungsimport_find_non_supplier_by_vat($db, $vat)
 	return $obj ? (int) $obj->rowid : null;
 }
 
+/** Normalize a company name into distinctive tokens for own-company checks. */
+function auvorechnungsimport_company_name_tokens($name)
+{
+	$name = strtr((string) $name, array('Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue', 'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue', 'ß' => 'ss'));
+	$name = strtolower($name);
+	$name = preg_replace('/[^a-z0-9]+/', ' ', $name);
+	$stop = array('e', 'v', 'ev', 'gmbh', 'ug', 'ag', 'kg', 'ohg', 'kgaa', 'ltd', 'inc', 'llc', 'sarl', 'sasu', 'sa', 'sv', 'fv', 'ev', 'der', 'die', 'das', 'und', 'von', 'zu');
+	$tokens = array_filter(preg_split('/\s+/', trim($name)), function ($token) use ($stop) {
+		return $token !== '' && !ctype_digit($token) && !in_array($token, $stop, true);
+	});
+	return array_values(array_unique($tokens));
+}
+
+/** Detect when OCR or the chosen supplier points back to Dolibarr's own company. */
+function auvorechnungsimport_is_own_company_supplier($db, $fields = array(), $supplierId = 0)
+{
+	global $mysoc;
+	$ownNames = array(getDolGlobalString('MAIN_INFO_SOCIETE_NOM'));
+	$aliasValue = getDolGlobalString('AUVORECHNUNGSIMPORT_OWN_COMPANY_ALIASES');
+	// Older textarea values may contain actual line breaks or their literal
+	// escaped spelling. Normalize those once, then semicolon is the only delimiter.
+	$aliasValue = str_replace(array('\\r\\n', '\\n', '\\r', "\r\n", "\r", "\n"), ';', $aliasValue);
+	$ownAliases = explode(';', $aliasValue);
+	foreach ($ownAliases as $alias) {
+		$alias = trim($alias);
+		if ($alias !== '') $ownNames[] = $alias;
+	}
+	if (is_object($mysoc) && !empty($mysoc->name)) $ownNames[] = (string) $mysoc->name;
+	$ownVat = auvorechnungsimport_normalize_vat(getDolGlobalString('MAIN_INFO_TVAINTRA'));
+	$ownTokens = array();
+	foreach ($ownNames as $ownName) {
+		$tokens = auvorechnungsimport_company_name_tokens($ownName);
+		if ($tokens) $ownTokens[] = $tokens;
+	}
+	$candidateName = trim((string) ($fields['supplier_name'] ?? ''));
+	$candidateVat = auvorechnungsimport_normalize_vat($fields['supplier_vat'] ?? '');
+	if ($ownVat !== '' && $candidateVat !== '' && $candidateVat === $ownVat) return true;
+
+	$candidateTokens = auvorechnungsimport_company_name_tokens($candidateName);
+	if ($candidateTokens) {
+		foreach ($ownTokens as $tokens) {
+			$common = count(array_intersect($tokens, $candidateTokens));
+			$smaller = min(count($tokens), count($candidateTokens));
+			if ($common > 0 && ($common === count($tokens) && $common === count($candidateTokens) || $common >= 2 && $common / max(1, $smaller) >= 0.8)) return true;
+		}
+	}
+
+	if ($supplierId > 0) {
+		require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+		$supplier = new Societe($db);
+		if ($supplier->fetch((int) $supplierId) > 0) {
+			$supplierVat = auvorechnungsimport_normalize_vat($supplier->tva_intra ?? '');
+			if ($ownVat !== '' && $supplierVat !== '' && $supplierVat === $ownVat) return true;
+			$supplierTokens = auvorechnungsimport_company_name_tokens($supplier->name ?? '');
+			foreach ($ownTokens as $tokens) {
+				$common = count(array_intersect($tokens, $supplierTokens));
+				$smaller = min(count($tokens), count($supplierTokens));
+				if ($common > 0 && ($common === count($tokens) && $common === count($supplierTokens) || $common >= 2 && $common / max(1, $smaller) >= 0.8)) return true;
+			}
+		}
+	}
+	return false;
+}
+
 /**
  * Create a supplier only when extraction has a reliable company name. VAT ID is
  * used for deduplication when present, but is not mandatory for supplier creation.
@@ -688,16 +975,16 @@ function auvorechnungsimport_find_non_supplier_by_vat($db, $vat)
  * @param array<string,mixed> $fields Extracted invoice fields
  * @return int Supplier id, or 0 when evidence/settings/permissions are insufficient
  */
-function auvorechnungsimport_can_create_supplier_from_fields($user, $fields)
+function auvorechnungsimport_can_create_supplier_from_fields($user, $fields, $allowManualName = false)
 {
 	$name = trim((string) ($fields['supplier_name'] ?? ''));
 	$vat = auvorechnungsimport_normalize_vat($fields['supplier_vat'] ?? '');
 	return (bool) (getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') && $user
-		&& $user->hasRight('societe', 'creer') && !empty($fields['supplier_name_confident'])
+		&& $user->hasRight('societe', 'creer') && ($allowManualName || !empty($fields['supplier_name_confident']))
 		&& $name !== '' && ($vat === '' || preg_match('/^[A-Z]{2}[A-Z0-9]{8,14}$/', $vat)));
 }
 
-function auvorechnungsimport_create_supplier_from_fields($db, $user, $fields, $choices = array(), &$error = null)
+function auvorechnungsimport_create_supplier_from_fields($db, $user, $fields, $choices = array(), &$error = null, $allowManualName = false)
 {
 	global $conf;
 	if (!getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER')) {
@@ -708,7 +995,7 @@ function auvorechnungsimport_create_supplier_from_fields($db, $user, $fields, $c
 		$error = 'Dem Benutzer fehlt das Geschäftspartnerrecht zum Anlegen.';
 		return 0;
 	}
-	if (empty($fields['supplier_name_confident']) || trim((string) ($fields['supplier_name'] ?? '')) === '') {
+	if (empty($fields['supplier_name_confident']) && !$allowManualName || trim((string) ($fields['supplier_name'] ?? '')) === '') {
 		$error = 'Der erkannte Firmenname ist nicht als sicher markiert. Bitte Import erneut analysieren oder Lieferant manuell auswählen.';
 		return 0;
 	}
@@ -957,6 +1244,9 @@ function auvorechnungsimport_process_file($db, $object, $abspath, $user = null)
 			}
 		}
 		list($fields['lines'], $fields['lines_check']) = auvorechnungsimport_finish_text_lines($lines, $totals, $lineText);
+		if (auvorechnungsimport_is_german_small_business_invoice($text.' '.$lineText)) {
+			$fields['vat_treatment'] = 'DE_KLEINUNTERNEHMER_19';
+		}
 		if (empty($fields['amount_ht']) && !empty($totals['amount_ht'])) {
 			$fields['amount_ht'] = $totals['amount_ht'];
 		}
@@ -1030,6 +1320,12 @@ function auvorechnungsimport_parse_amount($amount)
 		return null;
 	}
 	$amount = trim((string) $amount);
+	if (preg_match('/[,.]\s*[-–—]{1,2}$/u', $amount)) {
+		// German notation "625,-" means an integer euro amount.
+		$amount = preg_replace('/[,.]\s*[-–—]{1,2}$/u', '', $amount);
+		$amount = str_replace(array('.', ',', ' '), '', $amount);
+		return is_numeric($amount) ? (float) $amount : null;
+	}
 	// European format "1.234,56" -> "1234.56"; a lone comma is read as decimal separator.
 	if (preg_match('/,\d{2}$/', $amount)) {
 		$amount = str_replace('.', '', $amount);
@@ -1497,11 +1793,19 @@ function auvorechnungsimport_parse_number_token($token)
 	$token = trim($token);
 	$percent = substr($token, -1) === '%';
 	$token = rtrim($token, '%€');
+	// German invoices commonly write whole euro amounts as "625,-".
+	$wholeEuro = preg_match('/^-?(?:\d{1,3}(?:\.\d{3})+|\d+)[,.][ \t]*[-–—]{1,2}$/u', $token);
+	if ($wholeEuro) {
+		$token = preg_replace('/[,.][ \t]*[-–—]{1,2}$/u', '', $token);
+	}
 	if (!preg_match('/^(-?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,4})?|-?\d+\.\d{2,4})(?:EUR|ST|Stk\.?|x)?$/iu', $token, $m)) {
 		return null;
 	}
 	$num = $m[1];
-	if (strpos($num, ',') !== false) {
+	if ($wholeEuro) {
+		$decimals = true;
+		$num = str_replace('.', '', $num);
+	} elseif (strpos($num, ',') !== false) {
 		$decimals = (bool) preg_match('/,\d{2,4}$/', $num);
 		$num = str_replace(array('.', ','), array('', '.'), $num);
 	} elseif (preg_match('/^-?\d+\.\d{2,4}$/', $num)) {
@@ -1760,8 +2064,34 @@ function auvorechnungsimport_parse_vat_rates($text)
  */
 function auvorechnungsimport_finish_text_lines($lines, $fields, $text)
 {
+	$smallBusiness = auvorechnungsimport_is_german_small_business_invoice($text);
 	if (empty($lines)) {
+		// A small-business invoice can contain one payable amount and no
+		// arithmetic line (qty x unit price). Treat it as a gross line at 0%.
+		$gross = $fields['amount_ttc'] ?? null;
+		if ($smallBusiness && $gross !== null && (float) $gross > 0 && empty($fields['amount_ht'])) {
+			$label = 'Leistung laut Rechnung';
+			foreach (preg_split('/\r\n|\r|\n/u', (string) $text) as $row) {
+				if (preg_match('/\b(Entschädigung|Entschaedigung|Gebühr|Gebuehr|Pauschale|Ablöse|Abloese|Leistung)\b/iu', $row)) {
+					$label = trim($row);
+					if (dol_strlen($label) > 120) $label = dol_substr($label, 0, 120);
+					break;
+				}
+			}
+			$lines = array(array(
+				'source' => 'text', 'ref_supplier' => '', 'gtin' => '', 'label' => $label,
+				'qty' => 1.0, 'unit_code' => '', 'price' => (float) $gross,
+				'price_base' => 'TTC', 'vat_rate' => 0.0, 'vat_src_code' => 'K19', 'total' => (float) $gross,
+			));
+			return array($lines, 'ok');
+		}
 		return array($lines, 'unknown');
+	}
+	if ($smallBusiness) {
+		foreach ($lines as $i => $line) {
+			$lines[$i]['vat_rate'] = 0.0;
+			$lines[$i]['vat_src_code'] = 'K19';
+		}
 	}
 	$rates = auvorechnungsimport_parse_vat_rates($text);
 	if (count($rates) == 1) {
@@ -1789,6 +2119,12 @@ function auvorechnungsimport_finish_text_lines($lines, $fields, $text)
 		return array($lines, 'ok');
 	}
 	return array($lines, ($ht === null && $ttc === null) ? 'unknown' : 'mismatch');
+}
+
+/** Detect a German small-business VAT note, including spacing and line-break variants. */
+function auvorechnungsimport_is_german_small_business_invoice($text)
+{
+	return auvorechnungsimport_einvoice_is_small_business_note($text);
 }
 
 /**

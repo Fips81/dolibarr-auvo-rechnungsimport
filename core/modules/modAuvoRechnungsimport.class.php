@@ -174,7 +174,7 @@ class modAuvoRechnungsimport extends DolibarrModules
 		return $result;
 	}
 
-	/** Add reminder columns to existing installations when the module is reinitialized. */
+	/** Add fields introduced after initial installation when the module is reinitialized. */
 	private function ensureReminderFields()
 	{
 		$table = MAIN_DB_PREFIX.'auvorechnungsimport_importedinvoice';
@@ -193,6 +193,7 @@ class modAuvoRechnungsimport extends DolibarrModules
 		$definitions = array(
 			'reminder_count' => array('type' => 'integer', 'null' => 'NOT NULL', 'default' => '0'),
 			'last_reminder' => array('type' => 'datetime', 'null' => 'NULL'),
+			'file_hash' => array('type' => 'varchar', 'value' => '64', 'null' => 'NULL'),
 		);
 		foreach ($definitions as $field => $definition) {
 			if (isset($columns[$field])) continue;
