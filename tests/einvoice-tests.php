@@ -18,6 +18,12 @@
 if (PHP_SAPI !== 'cli') {
 	exit(1);
 }
+if (!function_exists('dol_syslog')) {
+	function dol_syslog($message, $level = 0)
+	{
+		// The standalone parser tests do not bootstrap Dolibarr's logger.
+	}
+}
 // Same as the module's helper (core/lib/auvorechnungsimport.lib.php)
 function auvorechnungsimport_normalize_vat($vat)
 {
@@ -58,6 +64,7 @@ function lines_sum($fields)
 check(auvorechnungsimport_parse_einvoice('<foo/>') === null, 'unknown XML is rejected');
 check(auvorechnungsimport_parse_einvoice('not xml') === null, 'garbage is rejected');
 check(auvorechnungsimport_parse_einvoice('') === null, 'empty input is rejected');
+check(auvorechnungsimport_parse_einvoice('<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>') === null, 'DTD and entity declarations are rejected');
 
 // UBL invoice: allowance, Skonto, two VAT rates
 $inv = load('xrechnung-ubl-standard.xml');
@@ -118,7 +125,7 @@ eq("Datum;Stunden\n", $ab['attachments'][0]['content'] ?? null, 'BG-24 decoded')
 eq('Stundennachweis.csv', $ab['attachments'][0]['name'] ?? null, 'BG-24 file name');
 $fab = auvorechnungsimport_einvoice_to_fields($ab);
 eq('22/180/80394', $fab['supplier_tax_id'], 'import: tax number for supplier matching');
-eq('22/180/80394', $fab['supplier_vat'], 'import: tax number as fallback identifier');
+eq('', $fab['supplier_vat'], 'import: tax number remains distinct from VAT ID');
 eq(1, $fab['attachments'], 'import: attachment count');
 
 // CII with two attachments
@@ -131,7 +138,13 @@ check(strpos($an['attachments'][0]['content'] ?? '', '%PDF') === 0, 'CII attachm
 $dir = $argv[1] ?? getenv('KOSIT_TESTSUITE') ?: '';
 if ($dir !== '' && is_dir($dir)) {
 	// Differences that are in the testsuite data itself, not in the reader
-	$knownDataDiffs = array('order_reference', '01.21:supplier_vat');
+	$knownDataDiffs = array(
+		'order_reference', '01.21:supplier_vat',
+		// These KoSIT CII/UBL pairs contain different sample values in the files.
+		'01.20:supplier_address', '03.06:supplier_address',
+		'01.03:supplier_contact_name', '01.03:supplier_contact_firstname', '01.03:supplier_contact_lastname',
+		'01.04:supplier_contact_name', '01.04:supplier_contact_firstname', '01.04:supplier_contact_lastname',
+	);
 	$n = 0;
 	foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)) as $file) {
 		$file = (string) $file;

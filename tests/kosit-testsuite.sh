@@ -15,11 +15,12 @@ BUNDLE_SHA256="5f5426741a03e0b9abc7de83acd97309c09498241d132fc035f9c830be7203de"
 TESTSUITE_ZIP="xrechnung-3.0.2-testsuite-2026-08-31.zip"
 
 CACHE_DIR="${KOSIT_CACHE_DIR:-$HOME/.cache/kosit}"
+PYTHON_BIN="${PYTHON:-python3}"
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUNDLE_DIR="$CACHE_DIR/$BUNDLE_NAME"
 SUITE_DIR="$CACHE_DIR/$BUNDLE_NAME-testsuite"
 
-unzip_to() { python3 -I -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$1" "$2"; }
+unzip_to() { "$PYTHON_BIN" -I -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$1" "$2"; }
 
 if [ ! -f "$SUITE_DIR/.ready" ]; then
 	mkdir -p "$CACHE_DIR"

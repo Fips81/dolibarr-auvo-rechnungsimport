@@ -7,9 +7,8 @@
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * Background worker: analyses all queued supplier invoice imports.
- * Started detached by the upload (auvorechnungsimport_queue_start()); can also be
- * run by hand or from cron:  php process_queue.php [entity]
+ * Legacy manual CLI entry point: analyses queued supplier invoice imports.
+ * Normal processing is registered as a Dolibarr Cron job.
  */
 
 if (php_sapi_name() !== 'cli') {

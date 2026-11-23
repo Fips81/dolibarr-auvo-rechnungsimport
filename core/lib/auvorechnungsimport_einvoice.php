@@ -30,9 +30,22 @@ function auvorechnungsimport_parse_einvoice($xml)
 	if (!is_string($xml) || trim($xml) === '') {
 		return null;
 	}
+	// E-invoice XML is UTF-8 and does not need DTDs. Reject DTD/entity markup
+	// before libxml sees it; reject NUL-containing encodings to avoid bypasses.
+	if (strpos($xml, "\0") !== false || preg_match('/<!DOCTYPE\b|<!ENTITY\b/i', $xml)) {
+		dol_syslog('AuvoRechnungsimport: rejected XML containing a DTD declaration', LOG_WARNING);
+		return null;
+	}
 	$dom = new DOMDocument();
-	// LIBXML_NONET: never resolve external entities or DTDs from the network.
-	if (!@$dom->loadXML($xml, LIBXML_NONET)) {
+	$dom->resolveExternals = false;
+	$dom->substituteEntities = false;
+	$dom->validateOnParse = false;
+	$previousLibxmlErrorMode = libxml_use_internal_errors(true);
+	$loaded = @$dom->loadXML($xml, LIBXML_NONET);
+	$hasDoctype = ($dom->doctype !== null);
+	libxml_clear_errors();
+	libxml_use_internal_errors($previousLibxmlErrorMode);
+	if (!$loaded || $hasDoctype) {
 		return null;
 	}
 	$root = $dom->documentElement;
@@ -46,7 +59,6 @@ function auvorechnungsimport_parse_einvoice($xml)
 	if (in_array($root->localName, array('Invoice', 'CreditNote'), true) && $ns === 'urn:oasis:names:specification:ubl:schema:xsd:'.$root->localName.'-2') {
 		return auvorechnungsimport_parse_ubl($dom, $root->localName === 'CreditNote');
 	}
-	return null;
 }
 
 /**
@@ -615,11 +627,46 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 	}
 
 	$vat = (string) ($seller['vat_id'] ?? '');
+	$sellerAddress = is_array($seller['address'] ?? null) ? $seller['address'] : array();
+	$sellerContact = is_array($seller['contact'] ?? null) ? $seller['contact'] : array();
+	$contactName = trim((string) ($sellerContact['name'] ?? ''));
+	$contactFirstName = '';
+	$contactLastName = '';
+	if (strpos($contactName, ',') !== false) {
+		$nameParts = array_map('trim', explode(',', $contactName, 2));
+		$contactLastName = (string) ($nameParts[0] ?? '');
+		$contactFirstName = (string) ($nameParts[1] ?? '');
+	} else {
+		$nameParts = preg_split('/\\s+/', $contactName, 2);
+		if (count($nameParts) === 2) {
+			$contactFirstName = trim((string) $nameParts[0]);
+			$contactLastName = trim((string) $nameParts[1]);
+		}
+	}
+	$sellerEmail = (string) ($sellerContact['email'] ?? '');
+	if ($sellerEmail === '' && strtoupper((string) ($seller['endpoint']['scheme'] ?? '')) === 'EM') {
+		$sellerEmail = (string) ($seller['endpoint']['id'] ?? '');
+	}
+	$sellerIban = '';
+	foreach (($inv['payment']['means'] ?? array()) as $paymentMean) {
+		if (!empty($paymentMean['iban'])) {
+			$sellerIban = (string) $paymentMean['iban'];
+			break;
+		}
+	}
 	return array(
 		'supplier_name' => (string) ($seller['name'] ?? ''),
-		// Some sellers only give a tax number (Steuernummer, SIREN), no VAT ID.
-		'supplier_vat' => auvorechnungsimport_normalize_vat($vat !== '' ? $vat : (string) ($seller['tax_id'] ?? '')),
+		'supplier_name_confident' => !empty($seller['name']),
+		'supplier_vat' => auvorechnungsimport_normalize_vat($vat),
 		'supplier_tax_id' => (string) ($seller['tax_id'] ?? ''),
+		'supplier_address' => $sellerAddress,
+		'supplier_country' => strtoupper((string) ($sellerAddress['country'] ?? '')),
+		'supplier_email' => $sellerEmail,
+		'supplier_phone' => (string) ($sellerContact['phone'] ?? ''),
+		'supplier_contact_name' => $contactName,
+		'supplier_contact_firstname' => $contactFirstName,
+		'supplier_contact_lastname' => $contactLastName,
+		'supplier_iban' => $sellerIban,
 		'invoice_ref' => $inv['document']['id'],
 		'invoice_date' => $inv['document']['issue_date'] !== '' ? $inv['document']['issue_date'] : null,
 		'due_date' => $inv['document']['due_date'],

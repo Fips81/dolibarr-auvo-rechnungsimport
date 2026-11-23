@@ -40,7 +40,44 @@ if ($action == 'update') {
 		dolibarr_set_const($db, $const, trim(GETPOST($const, 'alphanohtml')), 'chaine', 0, '', $conf->entity);
 	}
 	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER', GETPOSTINT('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? 1 : 0, 'chaine', 0, '', $conf->entity);
+	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE', GETPOSTINT('AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE') ? 1 : 0, 'chaine', 0, '', $conf->entity);
+	$reminderEmail = trim(GETPOST('AUVORECHNUNGSIMPORT_REMINDER_EMAIL', 'alphanohtml'));
+	if ($reminderEmail !== '' && !isValidEmail($reminderEmail)) {
+		$reminderEmail = '';
+		setEventMessages($langs->trans('AuvoRechnungsimportReminderEmailInvalid'), null, 'errors');
+	}
+	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_REMINDER_EMAIL', $reminderEmail, 'chaine', 0, '', $conf->entity);
+	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_REMINDER_PERIOD_DAYS', min(365, max(1, GETPOSTINT('AUVORECHNUNGSIMPORT_REMINDER_PERIOD_DAYS'))), 'chaine', 0, '', $conf->entity);
+	$spamHeader = trim(GETPOST('AUVORECHNUNGSIMPORT_SPAM_HEADER', 'alphanohtml'));
+	$spamValue = trim(GETPOST('AUVORECHNUNGSIMPORT_SPAM_VALUE', 'alphanohtml'));
+	if ($spamHeader !== '' && !preg_match('/^[A-Za-z0-9-]{1,78}$/', $spamHeader)) {
+		$spamHeader = '';
+		$spamValue = '';
+		setEventMessages($langs->trans('AuvoRechnungsimportSpamHeaderInvalid'), null, 'errors');
+	}
+	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_SPAM_HEADER', $spamHeader, 'chaine', 0, '', $conf->entity);
+	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_SPAM_VALUE', $spamValue, 'chaine', 0, '', $conf->entity);
 	setEventMessages($langs->trans('SetupSaved'), null, 'mesgs');
+	header('Location: '.$_SERVER['PHP_SELF']);
+	exit;
+}
+
+if ($action == 'registercron') {
+	if (!GETPOSTISSET('token') || GETPOST('token') !== newToken()) {
+		accessforbidden('CSRF');
+	}
+	if (!isModEnabled('cron')) {
+		setEventMessages($langs->trans('AuvoRechnungsimportCronModuleRequired'), null, 'errors');
+	} elseif (dol_include_once('/auvorechnungsimport/core/modules/modAuvoRechnungsimport.class.php')) {
+		$module = new modAuvoRechnungsimport($db);
+		if ($module->insert_cronjobs() === 0) {
+			setEventMessages($langs->trans('AuvoRechnungsimportCronRegistered'), null, 'mesgs');
+		} else {
+			setEventMessages($langs->trans('AuvoRechnungsimportCronRegisterFailed'), array($module->error), 'errors');
+		}
+	} else {
+		setEventMessages($langs->trans('AuvoRechnungsimportCronRegisterFailed'), null, 'errors');
+	}
 	header('Location: '.$_SERVER['PHP_SELF']);
 	exit;
 }
@@ -66,11 +103,32 @@ foreach (array('AUVORECHNUNGSIMPORT_KEYWORDS_COST' => 'AuvoRechnungsimportKeywor
 }
 
 print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportAutocreateSupplier').'</td><td>';
-print '<input type="checkbox" name="AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? ' checked' : '').' disabled> <span class="opacitymedium">('.$langs->trans('AuvoRechnungsimportNotYetImplemented').')</span>';
+print '<input type="checkbox" name="AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? ' checked' : '').'> <span class="opacitymedium">'.$langs->trans('AuvoRechnungsimportAutocreateSupplierHelp').'</span>';
 print '</td></tr>';
+
+print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportBlockedLogEnable').'</td><td>';
+print '<input type="checkbox" name="AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE') ? ' checked' : '').'> <span class="opacitymedium">'.$langs->trans('AuvoRechnungsimportBlockedLogEnableHelp').'</span>';
+if (!isModEnabled('blockedlog')) print '<br><span class="warning">'.$langs->trans('AuvoRechnungsimportBlockedLogModuleRequired').'</span>';
+print '</td></tr>';
+
+print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportSpamHeader').'<br><span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportSpamHeaderHelp').'</span></td><td>';
+print '<input type="text" name="AUVORECHNUNGSIMPORT_SPAM_HEADER" class="minwidth200" value="'.dol_escape_htmltag(getDolGlobalString('AUVORECHNUNGSIMPORT_SPAM_HEADER')).'" placeholder="X-MS-Spam-Detected"> ';
+print '<input type="text" name="AUVORECHNUNGSIMPORT_SPAM_VALUE" class="minwidth150" value="'.dol_escape_htmltag(getDolGlobalString('AUVORECHNUNGSIMPORT_SPAM_VALUE')).'" placeholder="true">';
+print '</td></tr>';
+
+print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportReminderEmail').'<br><span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportReminderEmailHelp').'</span></td><td><input type="email" name="AUVORECHNUNGSIMPORT_REMINDER_EMAIL" class="minwidth300" value="'.dol_escape_htmltag(getDolGlobalString('AUVORECHNUNGSIMPORT_REMINDER_EMAIL')).'"></td></tr>';
+print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportReminderPeriod').'<br><span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportReminderPeriodHelp').'</span></td><td><input type="number" min="1" max="365" name="AUVORECHNUNGSIMPORT_REMINDER_PERIOD_DAYS" class="width50" value="'.getDolGlobalInt('AUVORECHNUNGSIMPORT_REMINDER_PERIOD_DAYS', 2).'"></td></tr>';
 
 print '</table></div>';
 print '<div class="center marginbottomonly"><input type="submit" class="button" value="'.$langs->trans('Save').'"></div>';
+print '</form>';
+
+print '<div class="titre">'.$langs->trans('AuvoRechnungsimportQueueCronTitle').'</div>';
+print '<div class="opacitymedium marginbottomonly">'.$langs->trans('AuvoRechnungsimportQueueCronHelp').'</div>';
+print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'" class="inline-block">';
+print '<input type="hidden" name="token" value="'.newToken().'">';
+print '<input type="hidden" name="action" value="registercron">';
+print '<input type="submit" class="button" value="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportCronRegisterBtn')).'">';
 print '</form>';
 
 llxFooter();

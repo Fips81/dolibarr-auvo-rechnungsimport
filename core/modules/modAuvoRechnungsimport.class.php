@@ -37,7 +37,8 @@ class modAuvoRechnungsimport extends DolibarrModules
 		$this->need_dolibarr_version = array(19, 0);
 
 		$this->module_parts = array(
-			'triggers' => 0,
+			'triggers' => 1,
+			'hooks' => array('data' => array('emailcollectorcard', 'emailcollector', 'invoicesuppliercard', 'globalcard')),
 			'login' => 0,
 			'substitutions' => 0,
 			'menus' => 0,
@@ -50,7 +51,15 @@ class modAuvoRechnungsimport extends DolibarrModules
 		$this->dirs = array('/auvorechnungsimport/temp');
 		$this->config_page_url = array('setup.php@auvorechnungsimport');
 
-		$this->depends = array('modFournisseur', 'modSociete');
+		// Drain a small queue batch regularly through Dolibarr's Cron module.
+		// The upload and Email Collector only enqueue records; they never spawn a
+		// platform-specific background process.
+		$this->cronjobs = array(
+			0 => array('label' => 'AuVo Rechnungsimport queue', 'jobtype' => 'method', 'class' => 'custom/auvorechnungsimport/class/auvorechnungsimportcron.class.php', 'objectname' => 'AuvoRechnungsimportCron', 'method' => 'processQueue', 'parameters' => '', 'comment' => 'Analyse queued supplier invoice imports', 'frequency' => 1, 'unitfrequency' => 60, 'priority' => 50, 'status' => 1, 'test' => 'isModEnabled("auvorechnungsimport")'),
+			1 => array('label' => 'AuVo Rechnungsimport reminders', 'jobtype' => 'method', 'class' => 'custom/auvorechnungsimport/class/auvorechnungsimportcron.class.php', 'objectname' => 'AuvoRechnungsimportCron', 'method' => 'sendReminders', 'parameters' => '', 'comment' => 'Send digest reminders for overdue supplier invoice imports', 'frequency' => 1, 'unitfrequency' => 86400, 'priority' => 60, 'status' => 1, 'test' => 'isModEnabled("auvorechnungsimport")'),
+		);
+
+	$this->depends = array('modFournisseur', 'modSociete', 'always' => 'modCron');
 		$this->requiredby = array();
 		$this->conflictwith = array();
 		$this->langfiles = array('auvorechnungsimport@auvorechnungsimport');
@@ -59,6 +68,7 @@ class modAuvoRechnungsimport extends DolibarrModules
 			array('AUVORECHNUNGSIMPORT_OCR_LANGS', 'chaine', 'deu+fra+eng', 'Sprachen fuer Tesseract-OCR (tesseract --list-langs fuer verfuegbare Codes)', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_OCR_MAXPAGES', 'int', '5', 'Maximale Seitenzahl fuer OCR bei gescannten PDFs (Positionen koennen ueber mehrere Seiten gehen)', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER', 'int', '0', 'Unbekannten Lieferanten automatisch anlegen statt manuell nachzufragen', 1, 'current', 0),
+			array('AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE', 'int', '0', 'Eingangsrechnungen im unveränderlichen Log protokollieren', 1, 'current', 0),
 		);
 
 		if (!isset($conf->auvorechnungsimport) || !isset($conf->auvorechnungsimport->enabled)) {
@@ -77,6 +87,11 @@ class modAuvoRechnungsimport extends DolibarrModules
 		$this->rights[$r][1] = 'Rechnungen hochladen und daraus Lieferantenrechnungen anlegen';
 		$this->rights[$r][4] = 'imports';
 		$this->rights[$r][5] = 'write';
+		$r++;
+		$this->rights[$r][0] = $this->numero.sprintf("%02d", $r + 1);
+		$this->rights[$r][1] = 'AuvoRechnungsimportRightDelete';
+		$this->rights[$r][4] = 'imports';
+		$this->rights[$r][5] = 'delete';
 		$r++;
 
 		$this->menu = array();
@@ -105,8 +120,10 @@ class modAuvoRechnungsimport extends DolibarrModules
 			'auvorechnungsimport_upload' => array('AuvoRechnungsimportMenuUpload', $list.'?mode=upload', 1101),
 			'auvorechnungsimport_review' => array('AuvoRechnungsimportFilterToReview', $list.'?search_status=1,3', 1102),
 			'auvorechnungsimport_queued' => array('AuvoRechnungsimportStatusQueued', $list.'?search_status=4,0', 1103),
-			'auvorechnungsimport_error' => array('AuvoRechnungsimportStatusError', $list.'?search_status=9', 1104),
-			'auvorechnungsimport_imported' => array('AuvoRechnungsimportStatusImported', $list.'?search_status=2', 1105),
+			'auvorechnungsimport_spam' => array('AuvoRechnungsimportStatusSpamReview', $list.'?search_status=5', 1104),
+			'auvorechnungsimport_irrelevant' => array('AuvoRechnungsimportMenuIrrelevant', $list.'?search_status=6,7', 1105),
+			'auvorechnungsimport_error' => array('AuvoRechnungsimportStatusError', $list.'?search_status=9', 1106),
+			'auvorechnungsimport_imported' => array('AuvoRechnungsimportStatusImported', $list.'?search_status=2', 1107),
 		);
 		foreach ($left as $leftmenu => list($label, $url, $position)) {
 			$this->menu[] = array(
@@ -147,11 +164,44 @@ class modAuvoRechnungsimport extends DolibarrModules
 		if ($result < 0) {
 			return -1;
 		}
+		if ($this->ensureReminderFields() < 0) {
+			return -1;
+		}
 		// Before _init(): migrated settings must not be replaced by the defaults.
 		$this->migrateFromInvoiceImport();
 		$result = $this->_init(array(), $options);
 		$this->migrateRightsFromInvoiceImport();
 		return $result;
+	}
+
+	/** Add reminder columns to existing installations when the module is reinitialized. */
+	private function ensureReminderFields()
+	{
+		$table = MAIN_DB_PREFIX.'auvorechnungsimport_importedinvoice';
+		$resql = $this->db->DDLDescTable($table);
+		if (!$resql) {
+			$this->error = $this->db->lasterror();
+			return -1;
+		}
+		$columns = array();
+		while ($row = $this->db->fetch_object($resql)) {
+			$name = $row->Field ?? $row->attname ?? $row->field ?? '';
+			if ($name !== '') $columns[strtolower($name)] = true;
+		}
+		$this->db->free($resql);
+
+		$definitions = array(
+			'reminder_count' => array('type' => 'integer', 'null' => 'NOT NULL', 'default' => '0'),
+			'last_reminder' => array('type' => 'datetime', 'null' => 'NULL'),
+		);
+		foreach ($definitions as $field => $definition) {
+			if (isset($columns[$field])) continue;
+			if ($this->db->DDLAddField($table, $field, $definition) < 0) {
+				$this->error = $this->db->lasterror();
+				return -1;
+			}
+		}
+		return 1;
 	}
 
 	/**

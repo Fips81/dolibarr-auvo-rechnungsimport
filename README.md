@@ -37,8 +37,14 @@ Gegenstück zu [AuVo E-Rechnung](https://github.com/Fips81/dolibarr-auvo-erechnu
   ```
   apt install poppler-utils tesseract-ocr tesseract-ocr-deu tesseract-ocr-fra tesseract-ocr-eng
   ```
+  Windows e.g.
+  ```
+  choco install poppler
+  choco install capture2text --version 3.9 # tesseract not avalable anymore in more recent versions
+  ```
 
   Ohne diese Pakete funktionieren XRechnung und ZUGFeRD trotzdem.
+  PDFs mit Textebene können ebenfalls oft gut geparst werden.
 
 ## Installation
 
@@ -197,26 +203,42 @@ einmal):
   Preiszeile aktualisiert bzw. angelegt; Staffelpreise bleiben unberührt.
 - Positionen werden **nur nach Prüfung** im Formular angelegt. Weicht die Summe
   vom Rechnungsbetrag ab, gibt es eine Warnung.
-- Automatisches Anlegen unbekannter Lieferanten ist vorbereitet
-  (`AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER`), aber noch nicht implementiert –
-  aktuell muss immer ein bestehender Lieferant gewählt werden.
-- **Mehrfach-Upload mit Hintergrundanalyse**: Beliebig viele PDFs und XML-Dateien
+- Unbekannte Lieferanten können optional automatisch angelegt werden
+  (`AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER`). Das erfolgt bei sicher erkanntem
+  Firmennamen; eine USt-IdNr. wird zur Dublettenprüfung genutzt, ist aber nicht
+  erforderlich. Ein schwacher PDF/OCR-Namensvorschlag genügt nicht. Strukturierte E-Rechnungen
+  liefern zusätzlich Adresse und Land. Die Rechnung bleibt bis zur manuellen
+  Prüfung in der Importwarteschlange.
+- Die Freigabe in der Review-Ansicht validiert die Lieferantenrechnung direkt.
+  Erkennt die Analyse keine Positionen, muss vor der Freigabe mindestens eine
+  manuelle Position mit Menge, Nettopreis und Umsatzsteuersatz ergänzt werden;
+  Dolibarr validiert keine Rechnungen ohne Positionen.
+- Optional können Eingangsrechnungen mit dem Dolibarr-Modul BlockedLog
+  protokolliert werden. Bei Eingang wird die Originaldatei einmalig Base64-
+  kodiert mit SHA-256 gespeichert; bei der Freigabe folgt ein Eintrag zur
+  validierten Lieferantenrechnung einschließlich der finalen Positionen. Beide
+  Logeinträge werden über die Importreferenz verknüpft. Wegen des MEDIUMTEXT-Speichers sind dabei
+  Dateien bis 10 MB unterstützt. Löschen des Importdatensatzes entfernt den
+  bereits geschriebenen BlockedLog-Eintrag nicht.
+- **Mehrfach-Upload mit Cron-Analyse**: Beliebig viele PDFs und XML-Dateien
   auf einmal hochladen (Server-Grenzen `max_file_uploads`, `upload_max_filesize`,
   `post_max_size` werden im Formular angezeigt). Die Dateien werden nur
-  gespeichert und als „In Warteschlange“ markiert; ein losgelöster PHP-CLI-
-  Prozess (`scripts/process_queue.php`, gestartet per `setsid`) analysiert sie
-  nacheinander – ohne das 30-s-Zeitlimit des Webservers, wichtig für OCR
-  mehrseitiger Scans. Eine Sperrdatei (`documents/auvorechnungsimport/temp/
-  queue.lock`) verhindert parallele Läufe; ein vom abgestürzten Prozess auf
-  „Wird verarbeitet“ hinterlassener Import wird beim nächsten Lauf als Fehler
-  markiert, statt die Warteschlange zu blockieren. Die Liste aktualisiert sich
-  selbst, solange analysiert wird, und bietet „Analyse starten“, falls kein
-  Prozess läuft. PHP-CLI-Pfad optional über `AUVORECHNUNGSIMPORT_PHP_CLI_PATH`
-  (Standard: `PHP_BINDIR/php`). Manuell/per Cron: `php scripts/process_queue.php [entity]`
-  (als Webserver-Benutzer ausführen, damit Dateien und Sperre ihm gehören).
+  gespeichert und als „In Warteschlange“ markiert. Der Dolibarr-Cronjob
+  `AuVo Rechnungsimport queue` verarbeitet sie in kleinen Batches (ein Import
+  je Lauf). Aktiviere das Dolibarr-Cron-Modul, registriere die Importjobs in den
+  Moduleinstellungen und richte den Dolibarr-Cronrunner nach der Dokumentation
+  deiner Installation regelmäßig ein, zum Beispiel jede Minute. Bei OCR muss
+  der Cronrunner im CLI-Modus laufen, damit lange Scans nicht am Web-Zeitlimit
+  scheitern. Eine Sperrdatei
+  (`documents/auvorechnungsimport/temp/queue.lock`) verhindert parallele Läufe;
+  ein vom abgebrochenen Lauf hinterlassener „Wird verarbeitet“-Import wird beim
+  nächsten Cronlauf als Fehler markiert. Manueller Upload und Email Collector
+  stellen Dateien weiterhin in dieselbe Queue. Der Cronrunner braucht Zugriff
+  auf Poppler und Tesseract. Der tägliche Erinnerungsjob benötigt zusätzlich
+  eine gültige Empfängeradresse in den Moduleinstellungen.
 - **Durchgehen**: Filter „Zu prüfen“, Button „Prüfen starten“, auf der Karte
   „Nächste prüfen“ und nach dem Anlegen ein Link zur nächsten Rechnung.
-  „Erneut erkennen“ läuft ebenfalls im Hintergrund.
+  „Erneut erkennen“ stellt den Import ebenfalls wieder in die Cron-Queue.
 - Regex-Heuristiken in Schritt 2/3 sind best effort und decken nicht jedes
   Rechnungslayout ab – deshalb immer ein Prüfschritt vor dem Anlegen der
   Lieferantenrechnung.
@@ -228,12 +250,12 @@ laufen vollständig lokal, ohne Cloud-Dienst oder externe API.
 
 ## Tests
 
-`php tests/einvoice-tests.php` prüft den E-Rechnungs-Leser mit eigenen
-Beispieldateien. `bash tests/kosit-testsuite.sh` lädt zusätzlich die
-offizielle Testsuite der KoSIT und liest alle 86 Beispielrechnungen: jede wird
-gelesen, die Positionen ergeben die Nettosumme, CII- und UBL-Fassung desselben
-Falls liefern dieselben Daten. Beides läuft bei jedem Push und vor jedem
-Release in der GitHub-CI.
+`php tests/einvoice-tests.php` prüft den E-Rechnungs-Leser mit den mitgelieferten
+Beispieldateien. `bash tests/kosit-testsuite.sh` lädt zusätzlich die offizielle
+KoSIT-Testsuite herunter und prüft 86 XML-Beispiele. Dafür werden Bash, PHP CLI,
+`curl`, `sha256sum` und Python 3 benötigt; den Python-Interpreter kann man über
+`PYTHON` vorgeben. Beide Prüfungen und ein PHP-Syntaxcheck laufen in der
+GitHub-CI bei Pushes und Pull Requests.
 
 Das Release-ZIP entsteht automatisch, sobald ein Tag `vX.Y.Z` gepusht wird
 (`.github/workflows/release-zip.yml`: Tag muss zur Modulversion passen, Tests
@@ -253,26 +275,7 @@ jedes Modul bleibt einzeln installier- und entfernbar.
 
 ## Changelog
 
-### 0.3.0 (Oktober 2026)
-
-Erste öffentliche Version.
-
-- Umbenannt von InvoiceImport in **AuVo Rechnungsimport** (Ordner
-  `auvorechnungsimport`, Modulnummer 194203) mit automatischer Übernahme der
-  bisherigen Daten.
-- **XRechnung-Import:** XRechnung, Peppol BIS und ZUGFeRD/Factur-X als XML in
-  CII und UBL, Rechnung und Gutschrift, mit allen Positionen.
-- Lesbare Ansicht für XML-Rechnungen, aufklappbar auch unter ZUGFeRD-PDFs.
-- Anlagen der E-Rechnung (BG-24) herunterladbar und an die
-  Lieferantenrechnung angehängt.
-- Lieferantensuche zusätzlich über die Steuernummer.
-- Tests mit der offiziellen KoSIT-Testsuite, GitHub-CI und Release-Workflow.
-
-### 0.2.x und früher (intern, als InvoiceImport)
-
-PDF-Import mit Factur-X/ZUGFeRD, Textlayer und OCR; Positionserkennung mit
-lernender Artikel- und Variantenzuordnung; Varianten aus Rechnungszeilen
-anlegen; Behandlung pro Position; Mehrfach-Upload mit Hintergrundanalyse.
+Versionshinweise und Änderungen stehen in [CHANGELOG.md](CHANGELOG.md).
 
 ## Lizenz
 

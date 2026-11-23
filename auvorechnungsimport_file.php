@@ -27,6 +27,7 @@ if (!$res) {
 }
 
 require_once __DIR__.'/class/importedinvoice.class.php';
+require_once __DIR__.'/core/lib/auvorechnungsimport.lib.php';
 
 if (!isModEnabled('auvorechnungsimport') || !$user->hasRight('auvorechnungsimport', 'imports', 'read')) {
 	accessforbidden();
@@ -38,9 +39,8 @@ if ($id <= 0 || $object->fetch($id) <= 0 || empty($object->filepath)) {
 	accessforbidden('Not found');
 }
 
-$fullpath = realpath(DOL_DATA_ROOT.'/auvorechnungsimport/'.$object->filepath);
-$basedir = realpath(DOL_DATA_ROOT.'/auvorechnungsimport');
-if ($fullpath === false || $basedir === false || strncmp($fullpath, $basedir, strlen($basedir)) !== 0 || !is_readable($fullpath)) {
+$fullpath = auvorechnungsimport_resolve_file($object->filepath);
+if ($fullpath === false) {
 	accessforbidden('Not found');
 }
 
