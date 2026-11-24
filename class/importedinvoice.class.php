@@ -8,7 +8,7 @@
  * (at your option) any later version.
  */
 
-require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
+require_once DOL_DOCUMENT_ROOT . '/core/class/commonobject.class.php';
 
 /**
  * CRUD class for one uploaded supplier invoice awaiting (or past) import.
@@ -26,8 +26,11 @@ class ImportedInvoice extends CommonObject
 	const STATUS_NEEDS_REVIEW = 1;
 	const STATUS_IMPORTED = 2;
 	const STATUS_MATCHED = 3;
-	// Uploaded, waiting for the background analysis (scripts/process_queue.php)
+	// Uploaded, waiting for analysis by the module's Dolibarr Cron job
 	const STATUS_QUEUED = 4;
+	const STATUS_SPAM_REVIEW = 5;
+	const STATUS_DUPLICATE = 6;
+	const STATUS_SPAM_CONFIRMED = 7;
 	const STATUS_ERROR = 9;
 
 	public $fields = array(
@@ -40,6 +43,9 @@ class ImportedInvoice extends CommonObject
 		'fk_user_modif' => array('type' => 'integer:User:user/class/user.class.php', 'label' => 'UserModif', 'enabled' => 1, 'position' => 35, 'notnull' => 0, 'visible' => 0),
 		'status' => array('type' => 'integer', 'label' => 'Status', 'enabled' => 1, 'position' => 40, 'notnull' => 1, 'default' => '0', 'visible' => 1, 'arrayofkeyval' => array(
 			self::STATUS_QUEUED => 'AuvoRechnungsimportStatusQueued',
+			self::STATUS_SPAM_REVIEW => 'AuvoRechnungsimportStatusSpamReview',
+			self::STATUS_DUPLICATE => 'AuvoRechnungsimportStatusDuplicate',
+			self::STATUS_SPAM_CONFIRMED => 'AuvoRechnungsimportStatusSpamConfirmed',
 			self::STATUS_PROCESSING => 'AuvoRechnungsimportStatusProcessing',
 			self::STATUS_NEEDS_REVIEW => 'AuvoRechnungsimportStatusNeedsReview',
 			self::STATUS_MATCHED => 'AuvoRechnungsimportStatusMatched',
@@ -48,12 +54,16 @@ class ImportedInvoice extends CommonObject
 		)),
 		'original_filename' => array('type' => 'varchar(255)', 'label' => 'AuvoRechnungsimportOriginalFilename', 'enabled' => 1, 'position' => 50, 'notnull' => 1, 'visible' => 1),
 		'filepath' => array('type' => 'varchar(255)', 'label' => 'AuvoRechnungsimportFilepath', 'enabled' => 1, 'position' => 55, 'notnull' => 1, 'visible' => 0),
+		'file_hash' => array('type' => 'varchar(64)', 'label' => 'AuvoRechnungsimportFileHash', 'enabled' => 1, 'position' => 56, 'notnull' => 0, 'visible' => 0, 'index' => 1),
 		'extraction_method' => array('type' => 'varchar(32)', 'label' => 'AuvoRechnungsimportExtractionMethod', 'enabled' => 1, 'position' => 60, 'notnull' => 0, 'visible' => 1),
-		'extracted_data' => array('type' => 'text', 'label' => 'AuvoRechnungsimportExtractedData', 'enabled' => 1, 'position' => 65, 'notnull' => 0, 'visible' => 0),
+		'source' => array('type' => 'varchar(24)', 'label' => 'AuvoRechnungsimportSource', 'enabled' => 1, 'position' => 65, 'notnull' => 1, 'visible' => 1),
+		'extracted_data' => array('type' => 'text', 'label' => 'AuvoRechnungsimportExtractedData', 'enabled' => 1, 'position' => 66, 'notnull' => 0, 'visible' => 0),
 		'fk_soc' => array('type' => 'integer:Societe:societe/class/societe.class.php', 'label' => 'ThirdParty', 'picto' => 'company', 'enabled' => 1, 'position' => 70, 'notnull' => -1, 'visible' => 1, 'index' => 1),
 		'supplier_match_confidence' => array('type' => 'varchar(32)', 'label' => 'AuvoRechnungsimportMatchConfidence', 'enabled' => 1, 'position' => 75, 'notnull' => 0, 'visible' => 1),
 		'fk_facture_fourn' => array('type' => 'integer:FactureFournisseur:fourn/class/fournisseur.facture.class.php', 'label' => 'AuvoRechnungsimportSupplierInvoice', 'enabled' => 1, 'position' => 80, 'notnull' => -1, 'visible' => 1),
 		'note_private' => array('type' => 'text', 'label' => 'NotePrivate', 'enabled' => 1, 'position' => 90, 'notnull' => 0, 'visible' => 0),
+		'reminder_count' => array('type' => 'integer', 'label' => 'AuvoRechnungsimportReminderCount', 'enabled' => 1, 'position' => 95, 'notnull' => 1, 'default' => '0', 'visible' => 0),
+		'last_reminder' => array('type' => 'datetime', 'label' => 'AuvoRechnungsimportLastReminder', 'enabled' => 1, 'position' => 96, 'notnull' => 0, 'visible' => 0),
 	);
 
 	public $rowid;
@@ -66,12 +76,16 @@ class ImportedInvoice extends CommonObject
 	public $status;
 	public $original_filename;
 	public $filepath;
+	public $file_hash;
 	public $extraction_method;
+	public $source;
 	public $extracted_data;
+	public $note_private;
 	public $fk_soc;
 	public $supplier_match_confidence;
 	public $fk_facture_fourn;
-	public $note_private;
+	public $reminder_count = 0;
+	public $last_reminder;
 
 	public function __construct($db)
 	{
@@ -90,7 +104,7 @@ class ImportedInvoice extends CommonObject
 		}
 		$result = $this->createCommon($user, $notrigger);
 		if ($result > 0 && $this->ref === '(PROV)') {
-			$this->ref = '(PROV'.$this->id.')';
+			$this->ref = '(PROV' . $this->id . ')';
 			$this->updateCommon($user, 1);
 		}
 		return $result;
@@ -137,11 +151,11 @@ class ImportedInvoice extends CommonObject
 	public function fetchAll($sortorder = 'DESC', $sortfield = 't.rowid', $limit = 100, $offset = 0, $filter = '')
 	{
 		$records = array();
-		$sql = "SELECT ".$this->getFieldList('t');
-		$sql .= " FROM ".MAIN_DB_PREFIX.$this->table_element." as t";
-		$sql .= " WHERE t.entity IN (".getEntity($this->element).")";
+		$sql = "SELECT " . $this->getFieldList('t');
+		$sql .= " FROM " . MAIN_DB_PREFIX . $this->table_element . " as t";
+		$sql .= " WHERE t.entity IN (" . getEntity($this->element) . ")";
 		if (!empty($filter)) {
-			$sql .= " AND (".$filter.")";
+			$sql .= " AND (" . $filter . ")";
 		}
 		if (!empty($sortfield)) {
 			$sql .= $this->db->order($sortfield, $sortorder);
@@ -169,13 +183,13 @@ class ImportedInvoice extends CommonObject
 	 */
 	public function getNomUrl($withpicto = 0, $option = '')
 	{
-		$url = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.$this->id;
-		$label = '<u>'.$this->ref.'</u>';
-		$link = '<a href="'.$url.'">';
+		$url = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1) . '?id=' . $this->id;
+		$label = '<u>' . $this->ref . '</u>';
+		$link = '<a href="' . $url . '">';
 		$linkend = '</a>';
 		$result = $link;
 		if ($withpicto) {
-			$result .= img_picto($label, $this->picto, 'class="paddingright"').($withpicto != 2 ? $this->ref : '');
+			$result .= img_picto($label, $this->picto, 'class="paddingright"') . ($withpicto != 2 ? $this->ref : '');
 		} else {
 			$result .= $this->ref;
 		}
@@ -192,6 +206,9 @@ class ImportedInvoice extends CommonObject
 		global $langs;
 		$labels = array(
 			self::STATUS_QUEUED => $langs->trans('AuvoRechnungsimportStatusQueued'),
+			self::STATUS_SPAM_REVIEW => $langs->trans('AuvoRechnungsimportStatusSpamReview'),
+			self::STATUS_DUPLICATE => $langs->trans('AuvoRechnungsimportStatusDuplicate'),
+			self::STATUS_SPAM_CONFIRMED => $langs->trans('AuvoRechnungsimportStatusSpamConfirmed'),
 			self::STATUS_PROCESSING => $langs->trans('AuvoRechnungsimportStatusProcessing'),
 			self::STATUS_NEEDS_REVIEW => $langs->trans('AuvoRechnungsimportStatusNeedsReview'),
 			self::STATUS_MATCHED => $langs->trans('AuvoRechnungsimportStatusMatched'),
@@ -204,6 +221,9 @@ class ImportedInvoice extends CommonObject
 		}
 		$classes = array(
 			self::STATUS_QUEUED => 'status0',
+			self::STATUS_SPAM_REVIEW => 'status8',
+			self::STATUS_DUPLICATE => 'status4',
+			self::STATUS_SPAM_CONFIRMED => 'status4',
 			self::STATUS_PROCESSING => 'status3',
 			self::STATUS_NEEDS_REVIEW => 'status1',
 			self::STATUS_MATCHED => 'status2',
@@ -211,7 +231,7 @@ class ImportedInvoice extends CommonObject
 			self::STATUS_ERROR => 'status8',
 		);
 		$cssclass = isset($classes[$this->status]) ? $classes[$this->status] : 'status0';
-		return '<span class="badge '.$cssclass.'">'.$status.'</span>';
+		return '<span class="badge ' . $cssclass . '">' . $status . '</span>';
 	}
 
 	/**
@@ -224,5 +244,14 @@ class ImportedInvoice extends CommonObject
 		}
 		$data = json_decode($this->extracted_data, true);
 		return is_array($data) ? $data : array();
+	}
+
+	/** Return the recorded analysis error details, if any. */
+	public function getAnalysisError()
+	{
+		$note = trim((string) $this->note_private);
+		if ($note === '') return '';
+		if (preg_match('/\[Analysefehler\]\s*(.*)$/su', $note, $m)) return trim($m[1]);
+		return '';
 	}
 }

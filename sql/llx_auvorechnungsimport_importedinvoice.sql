@@ -9,10 +9,14 @@ CREATE TABLE llx_auvorechnungsimport_importedinvoice (
 	status integer DEFAULT 0 NOT NULL,
 	original_filename varchar(255) NOT NULL,
 	filepath varchar(255) NOT NULL,
+	file_hash varchar(64),
 	extraction_method varchar(32),
+	source varchar(24) DEFAULT 'unknown' NOT NULL,
 	extracted_data text,
 	fk_soc integer,
 	supplier_match_confidence varchar(32),
 	fk_facture_fourn integer,
-	note_private text
+	note_private text,
+	reminder_count integer DEFAULT 0 NOT NULL,
+	last_reminder datetime
 ) ENGINE=innodb;

@@ -18,12 +18,17 @@
 if (PHP_SAPI !== 'cli') {
 	exit(1);
 }
-// Same as the module's helper (core/lib/auvorechnungsimport.lib.php)
+if (!function_exists('dol_syslog')) {
+	function dol_syslog($message, $level = 0)
+	{
+		// The standalone parser tests do not bootstrap Dolibarr's logger.
+	}
+}
 function auvorechnungsimport_normalize_vat($vat)
 {
 	return strtoupper(preg_replace('/[\s.\-]/', '', (string) $vat));
 }
-require_once __DIR__.'/../core/lib/auvorechnungsimport_einvoice.php';
+require_once __DIR__ . '/../core/lib/auvorechnungsimport_einvoice.php';
 
 $passed = 0;
 $failures = array();
@@ -39,11 +44,11 @@ function check($cond, $label)
 function eq($expected, $actual, $label)
 {
 	$ok = $expected === $actual || (is_numeric($expected) && is_numeric($actual) && abs($expected - $actual) < 0.005);
-	check($ok, $label.' (expected '.var_export($expected, true).', got '.var_export($actual, true).')');
+	check($ok, $label . ' (expected ' . var_export($expected, true) . ', got ' . var_export($actual, true) . ')');
 }
 function load($name)
 {
-	return auvorechnungsimport_parse_einvoice(file_get_contents(__DIR__.'/fixtures/'.$name));
+	return auvorechnungsimport_parse_einvoice(file_get_contents(__DIR__ . '/fixtures/' . $name));
 }
 function lines_sum($fields)
 {
@@ -58,6 +63,7 @@ function lines_sum($fields)
 check(auvorechnungsimport_parse_einvoice('<foo/>') === null, 'unknown XML is rejected');
 check(auvorechnungsimport_parse_einvoice('not xml') === null, 'garbage is rejected');
 check(auvorechnungsimport_parse_einvoice('') === null, 'empty input is rejected');
+check(auvorechnungsimport_parse_einvoice('<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>') === null, 'DTD and entity declarations are rejected');
 
 // UBL invoice: allowance, Skonto, two VAT rates
 $inv = load('xrechnung-ubl-standard.xml');
@@ -118,8 +124,16 @@ eq("Datum;Stunden\n", $ab['attachments'][0]['content'] ?? null, 'BG-24 decoded')
 eq('Stundennachweis.csv', $ab['attachments'][0]['name'] ?? null, 'BG-24 file name');
 $fab = auvorechnungsimport_einvoice_to_fields($ab);
 eq('22/180/80394', $fab['supplier_tax_id'], 'import: tax number for supplier matching');
-eq('22/180/80394', $fab['supplier_vat'], 'import: tax number as fallback identifier');
+eq('', $fab['supplier_vat'], 'import: tax number remains distinct from VAT ID');
 eq(1, $fab['attachments'], 'import: attachment count');
+eq('DE_KLEINUNTERNEHMER_19', $fab['vat_treatment'], '§19 VAT treatment detected from XML exemption text');
+foreach ($fab['lines'] as $line) {
+	eq(0.0, $line['vat_rate'], '§19 XML line has zero VAT');
+	eq('K19', $line['vat_src_code'], '§19 XML line carries source code');
+}
+foreach (array('§ 19, Abs. 1 UStG', "§19\nAbsatz 1 UStG", '§ 19 Abs. 1 Umsatzsteuergesetz', 'gemäß §19 UStG', 'Kleinunternehmerregelung') as $smallBusinessText) {
+	check(auvorechnungsimport_einvoice_is_small_business_note($smallBusinessText), '§19 note recognized: ' . $smallBusinessText);
+}
 
 // CII with two attachments
 $an = load('xrechnung-cii-anlagen.xml');
@@ -131,7 +145,19 @@ check(strpos($an['attachments'][0]['content'] ?? '', '%PDF') === 0, 'CII attachm
 $dir = $argv[1] ?? getenv('KOSIT_TESTSUITE') ?: '';
 if ($dir !== '' && is_dir($dir)) {
 	// Differences that are in the testsuite data itself, not in the reader
-	$knownDataDiffs = array('order_reference', '01.21:supplier_vat');
+	$knownDataDiffs = array(
+		'order_reference',
+		'01.21:supplier_vat',
+		// These KoSIT CII/UBL pairs contain different sample values in the files.
+		'01.20:supplier_address',
+		'03.06:supplier_address',
+		'01.03:supplier_contact_name',
+		'01.03:supplier_contact_firstname',
+		'01.03:supplier_contact_lastname',
+		'01.04:supplier_contact_name',
+		'01.04:supplier_contact_firstname',
+		'01.04:supplier_contact_lastname',
+	);
 	$n = 0;
 	foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)) as $file) {
 		$file = (string) $file;
@@ -140,30 +166,30 @@ if ($dir !== '' && is_dir($dir)) {
 		}
 		$n++;
 		$p = auvorechnungsimport_parse_einvoice(file_get_contents($file));
-		check($p !== null, 'KoSIT '.basename($file).' parsed');
+		check($p !== null, 'KoSIT ' . basename($file) . ' parsed');
 		if ($p === null) {
 			continue;
 		}
 		$fields = auvorechnungsimport_einvoice_to_fields($p);
 		// qty x unit price is rounded per line: a few cents of drift are normal
 		if ($p['totals']['tax_basis'] !== null) {
-			check(abs($p['totals']['tax_basis'] - lines_sum($fields)) <= 0.02, 'KoSIT '.basename($file).' lines add up to the net total');
+			check(abs($p['totals']['tax_basis'] - lines_sum($fields)) <= 0.02, 'KoSIT ' . basename($file) . ' lines add up to the net total');
 		}
-		if (substr($file, -13) === '_uncefact.xml' && is_file($ubl = substr($file, 0, -13).'_ubl.xml')) {
+		if (substr($file, -13) === '_uncefact.xml' && is_file($ubl = substr($file, 0, -13) . '_ubl.xml')) {
 			$fu = auvorechnungsimport_einvoice_to_fields(auvorechnungsimport_parse_einvoice(file_get_contents($ubl)));
 			$case = substr(basename($file), 0, 5);
 			foreach ($fields as $k => $v) {
-				if ($k === 'syntax' || in_array($k, $knownDataDiffs, true) || in_array($case.':'.$k, $knownDataDiffs, true)) {
+				if ($k === 'syntax' || in_array($k, $knownDataDiffs, true) || in_array($case . ':' . $k, $knownDataDiffs, true)) {
 					continue;
 				}
-				check(json_encode($v) === json_encode($fu[$k] ?? null), 'KoSIT '.$case.' CII and UBL agree on '.$k);
+				check(json_encode($v) === json_encode($fu[$k] ?? null), 'KoSIT ' . $case . ' CII and UBL agree on ' . $k);
 			}
 		}
 	}
 	echo "KoSIT testsuite: $n documents\n";
 }
 
-echo "Passed: $passed\nFailed: ".count($failures)."\n";
+echo "Passed: $passed\nFailed: " . count($failures) . "\n";
 foreach ($failures as $f) {
 	echo "  - $f\n";
 }
