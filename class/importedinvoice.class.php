@@ -8,7 +8,7 @@
  * (at your option) any later version.
  */
 
-require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
+require_once DOL_DOCUMENT_ROOT . '/core/class/commonobject.class.php';
 
 /**
  * CRUD class for one uploaded supplier invoice awaiting (or past) import.
@@ -104,7 +104,7 @@ class ImportedInvoice extends CommonObject
 		}
 		$result = $this->createCommon($user, $notrigger);
 		if ($result > 0 && $this->ref === '(PROV)') {
-			$this->ref = '(PROV'.$this->id.')';
+			$this->ref = '(PROV' . $this->id . ')';
 			$this->updateCommon($user, 1);
 		}
 		return $result;
@@ -151,11 +151,11 @@ class ImportedInvoice extends CommonObject
 	public function fetchAll($sortorder = 'DESC', $sortfield = 't.rowid', $limit = 100, $offset = 0, $filter = '')
 	{
 		$records = array();
-		$sql = "SELECT ".$this->getFieldList('t');
-		$sql .= " FROM ".MAIN_DB_PREFIX.$this->table_element." as t";
-		$sql .= " WHERE t.entity IN (".getEntity($this->element).")";
+		$sql = "SELECT " . $this->getFieldList('t');
+		$sql .= " FROM " . MAIN_DB_PREFIX . $this->table_element . " as t";
+		$sql .= " WHERE t.entity IN (" . getEntity($this->element) . ")";
 		if (!empty($filter)) {
-			$sql .= " AND (".$filter.")";
+			$sql .= " AND (" . $filter . ")";
 		}
 		if (!empty($sortfield)) {
 			$sql .= $this->db->order($sortfield, $sortorder);
@@ -183,13 +183,13 @@ class ImportedInvoice extends CommonObject
 	 */
 	public function getNomUrl($withpicto = 0, $option = '')
 	{
-		$url = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.$this->id;
-		$label = '<u>'.$this->ref.'</u>';
-		$link = '<a href="'.$url.'">';
+		$url = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1) . '?id=' . $this->id;
+		$label = '<u>' . $this->ref . '</u>';
+		$link = '<a href="' . $url . '">';
 		$linkend = '</a>';
 		$result = $link;
 		if ($withpicto) {
-			$result .= img_picto($label, $this->picto, 'class="paddingright"').($withpicto != 2 ? $this->ref : '');
+			$result .= img_picto($label, $this->picto, 'class="paddingright"') . ($withpicto != 2 ? $this->ref : '');
 		} else {
 			$result .= $this->ref;
 		}
@@ -231,7 +231,7 @@ class ImportedInvoice extends CommonObject
 			self::STATUS_ERROR => 'status8',
 		);
 		$cssclass = isset($classes[$this->status]) ? $classes[$this->status] : 'status0';
-		return '<span class="badge '.$cssclass.'">'.$status.'</span>';
+		return '<span class="badge ' . $cssclass . '">' . $status . '</span>';
 	}
 
 	/**

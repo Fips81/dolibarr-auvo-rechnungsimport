@@ -3,9 +3,9 @@
  * Email Collector integration for AuVo Rechnungsimport.
  */
 
-require_once DOL_DOCUMENT_ROOT.'/core/class/commonhookactions.class.php';
-require_once __DIR__.'/importedinvoice.class.php';
-require_once __DIR__.'/../core/lib/auvorechnungsimport.lib.php';
+require_once DOL_DOCUMENT_ROOT . '/core/class/commonhookactions.class.php';
+require_once __DIR__ . '/importedinvoice.class.php';
+require_once __DIR__ . '/../core/lib/auvorechnungsimport.lib.php';
 
 class ActionsAuvoRechnungsimport extends CommonHookActions
 {
@@ -38,12 +38,14 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 			return 0;
 		}
 		$ventilExportCompta = $object->getVentilExportCompta();
-		if ($object->status == FactureFournisseur::STATUS_VALIDATED && $action != 'confirm_edit'
-			&& $object->getSommePaiement() == 0 && ($user->hasRight('fournisseur', 'facture', 'creer') || $user->hasRight('supplier_invoice', 'creer')) && $ventilExportCompta == 0) {
+		if (
+			$object->status == FactureFournisseur::STATUS_VALIDATED && $action != 'confirm_edit'
+			&& $object->getSommePaiement() == 0 && ($user->hasRight('fournisseur', 'facture', 'creer') || $user->hasRight('supplier_invoice', 'creer')) && $ventilExportCompta == 0
+		) {
 			// Dolibarr has no per-button hook here. Keep its action bar intact and
 			// hide only the core Modify link for this invoice; doActions below also
 			// rejects a manually constructed edit URL.
-			$this->resprints = '<style>.tabsAction a[href*="id='.((int) $object->id).'&action=edit"]{display:none!important}</style>';
+			$this->resprints = '<style>.tabsAction a[href*="id=' . ((int) $object->id) . '&action=edit"]{display:none!important}</style>';
 		}
 		return 0;
 	}
@@ -63,7 +65,7 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 	private function hasSupplierValidationLog($invoiceId)
 	{
 		if (!isModEnabled('blockedlog')) return false;
-		$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE action = 'BILL_SUPPLIER_VALIDATE' AND element = 'invoice_supplier' AND fk_object = ".((int) $invoiceId).$this->db->plimit(1);
+		$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "blockedlog WHERE action = 'BILL_SUPPLIER_VALIDATE' AND element = 'invoice_supplier' AND fk_object = " . ((int) $invoiceId) . $this->db->plimit(1);
 		$resql = $this->db->query($sql);
 		return ($resql && $this->db->num_rows($resql) > 0);
 	}
@@ -90,7 +92,7 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 		$spamHeaderValue = trim(getDolGlobalString('AUVORECHNUNGSIMPORT_SPAM_VALUE'));
 		$spamFlagged = false;
 		if ($spamHeaderName !== '' && $spamHeaderValue !== '' && !empty($parameters['header'])) {
-			$headerPattern = '/^'.preg_quote($spamHeaderName, '/').':\\s*'.preg_quote($spamHeaderValue, '/').'\\s*$/im';
+			$headerPattern = '/^' . preg_quote($spamHeaderName, '/') . ':\\s*' . preg_quote($spamHeaderValue, '/') . '\\s*$/im';
 			$spamFlagged = (bool) preg_match($headerPattern, (string) $parameters['header']);
 		}
 		if (!$attachments) {
@@ -98,7 +100,7 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 			return -1;
 		}
 
-		$root = DOL_DATA_ROOT.'/auvorechnungsimport';
+		$root = DOL_DATA_ROOT . '/auvorechnungsimport';
 		$accepted = 0;
 		$errors = array();
 		foreach ($attachments as $key => $attachment) {
@@ -121,7 +123,7 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 			}
 			$safeName = dol_trunc(dol_sanitizeFileName($name), 220);
 			if ($safeName === '') {
-				$safeName = 'email-attachment.'.$extension;
+				$safeName = 'email-attachment.' . $extension;
 			}
 			$import = new ImportedInvoice($this->db);
 			$import->date_creation = dol_now();
@@ -154,22 +156,22 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 				$accepted++;
 				continue;
 			}
-			$dir = $root.'/'.$import->id;
-			if (dol_mkdir($dir) < 0 || file_put_contents($dir.'/'.$safeName, $content, LOCK_EX) === false) {
+			$dir = $root . '/' . $import->id;
+			if (dol_mkdir($dir) < 0 || file_put_contents($dir . '/' . $safeName, $content, LOCK_EX) === false) {
 				$this->db->rollback();
 				$errors[] = $safeName;
 				continue;
 			}
-			@chmod($dir.'/'.$safeName, octdec(getDolGlobalString('MAIN_UMASK', '0664')));
-			$import->filepath = $import->id.'/'.$safeName;
+			@chmod($dir . '/' . $safeName, octdec(getDolGlobalString('MAIN_UMASK', '0664')));
+			$import->filepath = $import->id . '/' . $safeName;
 			if ($import->update($user) <= 0) {
-				@unlink($dir.'/'.$safeName);
+				@unlink($dir . '/' . $safeName);
 				$this->db->rollback();
 				$errors[] = $safeName;
 				continue;
 			}
-			if (auvorechnungsimport_blockedlog_store_received_file($this->db, $import, $dir.'/'.$safeName, $user, 'emailcollector') < 0) {
-				@unlink($dir.'/'.$safeName);
+			if (auvorechnungsimport_blockedlog_store_received_file($this->db, $import, $dir . '/' . $safeName, $user, 'emailcollector') < 0) {
+				@unlink($dir . '/' . $safeName);
 				$this->db->rollback();
 				$errors[] = $safeName;
 				continue;

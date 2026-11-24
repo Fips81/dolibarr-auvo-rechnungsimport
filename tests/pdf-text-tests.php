@@ -8,9 +8,9 @@
 if (PHP_SAPI !== 'cli') exit(1);
 
 define('DOL_DOCUMENT_ROOT', dirname(__DIR__, 3));
-require_once __DIR__.'/../core/lib/auvorechnungsimport.lib.php';
+require_once __DIR__ . '/../core/lib/auvorechnungsimport.lib.php';
 
-$pdf = __DIR__.'/fixtures/text-sender-name-linebreak.pdf';
+$pdf = __DIR__ . '/fixtures/text-sender-name-linebreak.pdf';
 $text = auvorechnungsimport_extract_pdftext($pdf);
 if ($text === '') {
 	fwrite(STDERR, "PDF text extraction failed; check that smalot/pdfparser is installed.\n");
@@ -20,7 +20,7 @@ if ($text === '') {
 $fields = auvorechnungsimport_parse_fields($text);
 $expected = 'Sportgemeinschaft Zusammenspiel e V';
 if (($fields['supplier_name'] ?? '') !== $expected) {
-	fwrite(STDERR, "Expected supplier name: {$expected}\nGot: ".($fields['supplier_name'] ?? '(empty)')."\n");
+	fwrite(STDERR, "Expected supplier name: {$expected}\nGot: " . ($fields['supplier_name'] ?? '(empty)') . "\n");
 	exit(1);
 }
 if (empty($fields['supplier_name_confident'])) {

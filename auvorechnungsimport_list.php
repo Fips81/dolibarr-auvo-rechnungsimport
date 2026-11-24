@@ -269,6 +269,10 @@ $toReview = $countOf(ImportedInvoice::STATUS_NEEDS_REVIEW.','.ImportedInvoice::S
 if ($toReview > 0) {
 	print '<div class="marginbottomonly"><a class="button" href="'.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.auvorechnungsimport_next_to_review($db, 0).'">'.$langs->trans('AuvoRechnungsimportReviewNextBtn', $toReview).'</a></div>';
 }
+$spamToReview = $countOf((string) ImportedInvoice::STATUS_SPAM_REVIEW);
+if ($spamToReview > 0) {
+	print '<div class="marginbottomonly"><a class="button buttonDelete" href="'.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.auvorechnungsimport_next_to_review($db, 0, true).'">'.$langs->trans('AuvoRechnungsimportReviewSpamBtn', $spamToReview).'</a></div>';
+}
 
 if ($mode === 'upload') {
 	// Upload view: form and queue state only

@@ -56,7 +56,7 @@ function auvorechnungsimport_parse_einvoice($xml)
 	if ($root->localName === 'CrossIndustryInvoice' && $ns === 'urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100') {
 		return auvorechnungsimport_parse_cii($dom);
 	}
-	if (in_array($root->localName, array('Invoice', 'CreditNote'), true) && $ns === 'urn:oasis:names:specification:ubl:schema:xsd:'.$root->localName.'-2') {
+	if (in_array($root->localName, array('Invoice', 'CreditNote'), true) && $ns === 'urn:oasis:names:specification:ubl:schema:xsd:' . $root->localName . '-2') {
 		return auvorechnungsimport_parse_ubl($dom, $root->localName === 'CreditNote');
 	}
 }
@@ -102,7 +102,7 @@ function auvorechnungsimport_cii_date($raw)
 {
 	$raw = trim((string) $raw);
 	if (preg_match('/^(\d{4})(\d{2})(\d{2})$/', $raw, $m)) {
-		return $m[1].'-'.$m[2].'-'.$m[3];
+		return $m[1] . '-' . $m[2] . '-' . $m[3];
 	}
 	return preg_match('/^\d{4}-\d{2}-\d{2}/', $raw) ? substr($raw, 0, 10) : '';
 }
@@ -118,10 +118,23 @@ function auvorechnungsimport_einvoice_skeleton($syntax)
 	return array(
 		'syntax'   => $syntax,
 		'document' => array(
-			'id' => '', 'type_code' => '', 'is_credit_note' => false, 'issue_date' => '', 'due_date' => '',
-			'currency' => '', 'buyer_reference' => '', 'order_reference' => '', 'contract_reference' => '',
-			'project_reference' => '', 'specification' => '', 'business_process' => '', 'notes' => array(),
-			'period_start' => '', 'period_end' => '', 'payment_terms' => '', 'preceding_invoices' => array(),
+			'id' => '',
+			'type_code' => '',
+			'is_credit_note' => false,
+			'issue_date' => '',
+			'due_date' => '',
+			'currency' => '',
+			'buyer_reference' => '',
+			'order_reference' => '',
+			'contract_reference' => '',
+			'project_reference' => '',
+			'specification' => '',
+			'business_process' => '',
+			'notes' => array(),
+			'period_start' => '',
+			'period_end' => '',
+			'payment_terms' => '',
+			'preceding_invoices' => array(),
 		),
 		'seller'        => null,
 		'buyer'         => null,
@@ -132,8 +145,15 @@ function auvorechnungsimport_einvoice_skeleton($syntax)
 		'allowances'    => array(),
 		'vat_breakdown' => array(),
 		'totals'        => array(
-			'line_total' => null, 'allowance_total' => null, 'charge_total' => null, 'tax_basis' => null,
-			'tax_total' => null, 'grand_total' => null, 'prepaid' => null, 'rounding' => null, 'due_payable' => null,
+			'line_total' => null,
+			'allowance_total' => null,
+			'charge_total' => null,
+			'tax_basis' => null,
+			'tax_total' => null,
+			'grand_total' => null,
+			'prepaid' => null,
+			'rounding' => null,
+			'due_payable' => null,
 		),
 		'attachments'   => array(),
 	);
@@ -161,9 +181,9 @@ function auvorechnungsimport_parse_cii($dom)
 	$inv = auvorechnungsimport_einvoice_skeleton('cii');
 	$d = &$inv['document'];
 	$tx = '/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction';
-	$ag = $tx.'/ram:ApplicableHeaderTradeAgreement';
-	$dl = $tx.'/ram:ApplicableHeaderTradeDelivery';
-	$st = $tx.'/ram:ApplicableHeaderTradeSettlement';
+	$ag = $tx . '/ram:ApplicableHeaderTradeAgreement';
+	$dl = $tx . '/ram:ApplicableHeaderTradeDelivery';
+	$st = $tx . '/ram:ApplicableHeaderTradeSettlement';
 
 	$d['id'] = $str('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:ID');
 	$d['type_code'] = $str('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:TypeCode');
@@ -174,20 +194,20 @@ function auvorechnungsimport_parse_cii($dom)
 	foreach ($nodes('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:IncludedNote') as $n) {
 		$d['notes'][] = array('subject' => $str('ram:SubjectCode', $n), 'content' => $str('ram:Content', $n));
 	}
-	$d['currency'] = $str($st.'/ram:InvoiceCurrencyCode');
-	$d['buyer_reference'] = $str($ag.'/ram:BuyerReference');
-	$d['order_reference'] = $str($ag.'/ram:BuyerOrderReferencedDocument/ram:IssuerAssignedID');
-	$d['contract_reference'] = $str($ag.'/ram:ContractReferencedDocument/ram:IssuerAssignedID');
-	$d['project_reference'] = $str($ag.'/ram:SpecifiedProcuringProject/ram:ID');
-	$d['period_start'] = auvorechnungsimport_cii_date($str($st.'/ram:BillingSpecifiedPeriod/ram:StartDateTime/udt:DateTimeString'));
-	$d['period_end'] = auvorechnungsimport_cii_date($str($st.'/ram:BillingSpecifiedPeriod/ram:EndDateTime/udt:DateTimeString'));
-	$d['due_date'] = auvorechnungsimport_cii_date($str($st.'/ram:SpecifiedTradePaymentTerms/ram:DueDateDateTime/udt:DateTimeString'));
+	$d['currency'] = $str($st . '/ram:InvoiceCurrencyCode');
+	$d['buyer_reference'] = $str($ag . '/ram:BuyerReference');
+	$d['order_reference'] = $str($ag . '/ram:BuyerOrderReferencedDocument/ram:IssuerAssignedID');
+	$d['contract_reference'] = $str($ag . '/ram:ContractReferencedDocument/ram:IssuerAssignedID');
+	$d['project_reference'] = $str($ag . '/ram:SpecifiedProcuringProject/ram:ID');
+	$d['period_start'] = auvorechnungsimport_cii_date($str($st . '/ram:BillingSpecifiedPeriod/ram:StartDateTime/udt:DateTimeString'));
+	$d['period_end'] = auvorechnungsimport_cii_date($str($st . '/ram:BillingSpecifiedPeriod/ram:EndDateTime/udt:DateTimeString'));
+	$d['due_date'] = auvorechnungsimport_cii_date($str($st . '/ram:SpecifiedTradePaymentTerms/ram:DueDateDateTime/udt:DateTimeString'));
 	$terms = array();
-	foreach ($nodes($st.'/ram:SpecifiedTradePaymentTerms/ram:Description') as $n) {
+	foreach ($nodes($st . '/ram:SpecifiedTradePaymentTerms/ram:Description') as $n) {
 		$terms[] = trim($n->textContent);
 	}
 	$d['payment_terms'] = implode("\n", array_filter($terms, 'strlen'));
-	foreach ($nodes($st.'/ram:InvoiceReferencedDocument') as $n) {
+	foreach ($nodes($st . '/ram:InvoiceReferencedDocument') as $n) {
 		$d['preceding_invoices'][] = array('ref' => $str('ram:IssuerAssignedID', $n), 'date' => auvorechnungsimport_cii_date($str('ram:FormattedIssueDateTime/qdt:DateTimeString', $n)));
 	}
 	unset($d);
@@ -196,8 +216,17 @@ function auvorechnungsimport_parse_cii($dom)
 		if (!$node) {
 			return null;
 		}
-		$p = array('name' => $str('ram:Name', $node), 'trading_name' => '', 'ids' => array(), 'legal_id' => '', 'vat_id' => '', 'tax_id' => '',
-			'address' => null, 'contact' => null, 'endpoint' => null);
+		$p = array(
+			'name' => $str('ram:Name', $node),
+			'trading_name' => '',
+			'ids' => array(),
+			'legal_id' => '',
+			'vat_id' => '',
+			'tax_id' => '',
+			'address' => null,
+			'contact' => null,
+			'endpoint' => null
+		);
 		foreach ($nodes('ram:ID', $node) as $n) {
 			$p['ids'][] = array('id' => trim($n->textContent), 'scheme' => '');
 		}
@@ -215,9 +244,13 @@ function auvorechnungsimport_parse_cii($dom)
 		}
 		foreach ($nodes('ram:PostalTradeAddress', $node) as $a) {
 			$p['address'] = array(
-				'line1' => $str('ram:LineOne', $a), 'line2' => $str('ram:LineTwo', $a), 'line3' => $str('ram:LineThree', $a),
-				'postcode' => $str('ram:PostcodeCode', $a), 'city' => $str('ram:CityName', $a),
-				'subdivision' => $str('ram:CountrySubDivisionName', $a), 'country' => $str('ram:CountryID', $a),
+				'line1' => $str('ram:LineOne', $a),
+				'line2' => $str('ram:LineTwo', $a),
+				'line3' => $str('ram:LineThree', $a),
+				'postcode' => $str('ram:PostcodeCode', $a),
+				'city' => $str('ram:CityName', $a),
+				'subdivision' => $str('ram:CountrySubDivisionName', $a),
+				'country' => $str('ram:CountryID', $a),
 			);
 		}
 		foreach ($nodes('ram:DefinedTradeContact', $node) as $c) {
@@ -239,21 +272,21 @@ function auvorechnungsimport_parse_cii($dom)
 		}
 		return null;
 	};
-	$inv['seller'] = $party($first($ag.'/ram:SellerTradeParty'));
-	$inv['buyer'] = $party($first($ag.'/ram:BuyerTradeParty'));
-	$inv['payee'] = $str($st.'/ram:PayeeTradeParty/ram:Name');
+	$inv['seller'] = $party($first($ag . '/ram:SellerTradeParty'));
+	$inv['buyer'] = $party($first($ag . '/ram:BuyerTradeParty'));
+	$inv['payee'] = $str($st . '/ram:PayeeTradeParty/ram:Name');
 
-	$shipTo = $party($first($dl.'/ram:ShipToTradeParty'));
+	$shipTo = $party($first($dl . '/ram:ShipToTradeParty'));
 	$inv['delivery'] = array(
-		'date'    => auvorechnungsimport_cii_date($str($dl.'/ram:ActualDeliverySupplyChainEvent/ram:OccurrenceDateTime/udt:DateTimeString')),
+		'date'    => auvorechnungsimport_cii_date($str($dl . '/ram:ActualDeliverySupplyChainEvent/ram:OccurrenceDateTime/udt:DateTimeString')),
 		'name'    => $shipTo ? $shipTo['name'] : '',
 		'address' => $shipTo ? $shipTo['address'] : null,
 	);
 
-	$inv['payment']['creditor_id'] = $str($st.'/ram:CreditorReferenceID');
-	$inv['payment']['remittance'] = $str($st.'/ram:PaymentReference');
-	$inv['payment']['mandate_id'] = $str($st.'/ram:SpecifiedTradePaymentTerms/ram:DirectDebitMandateID');
-	foreach ($nodes($st.'/ram:SpecifiedTradeSettlementPaymentMeans') as $pm) {
+	$inv['payment']['creditor_id'] = $str($st . '/ram:CreditorReferenceID');
+	$inv['payment']['remittance'] = $str($st . '/ram:PaymentReference');
+	$inv['payment']['mandate_id'] = $str($st . '/ram:SpecifiedTradePaymentTerms/ram:DirectDebitMandateID');
+	foreach ($nodes($st . '/ram:SpecifiedTradeSettlementPaymentMeans') as $pm) {
 		$iban = $str('ram:PayeePartyCreditorFinancialAccount/ram:IBANID', $pm);
 		$inv['payment']['means'][] = array(
 			'code'         => $str('ram:TypeCode', $pm),
@@ -264,37 +297,48 @@ function auvorechnungsimport_parse_cii($dom)
 		);
 	}
 
-	foreach ($nodes($st.'/ram:ApplicableTradeTax') as $t) {
+	foreach ($nodes($st . '/ram:ApplicableTradeTax') as $t) {
 		$inv['vat_breakdown'][] = array(
-			'category' => $str('ram:CategoryCode', $t), 'rate' => $num('ram:RateApplicablePercent', $t),
-			'basis' => $num('ram:BasisAmount', $t), 'tax' => $num('ram:CalculatedAmount', $t),
-			'exemption_reason' => $str('ram:ExemptionReason', $t), 'exemption_code' => $str('ram:ExemptionReasonCode', $t),
+			'category' => $str('ram:CategoryCode', $t),
+			'rate' => $num('ram:RateApplicablePercent', $t),
+			'basis' => $num('ram:BasisAmount', $t),
+			'tax' => $num('ram:CalculatedAmount', $t),
+			'exemption_reason' => $str('ram:ExemptionReason', $t),
+			'exemption_code' => $str('ram:ExemptionReasonCode', $t),
 		);
 	}
-	foreach ($nodes($st.'/ram:SpecifiedTradeAllowanceCharge') as $c) {
+	foreach ($nodes($st . '/ram:SpecifiedTradeAllowanceCharge') as $c) {
 		$inv['allowances'][] = array(
 			'is_charge' => strtolower($str('ram:ChargeIndicator/udt:Indicator', $c)) === 'true',
-			'amount' => $num('ram:ActualAmount', $c), 'reason' => $str('ram:Reason', $c), 'reason_code' => $str('ram:ReasonCode', $c),
-			'vat_category' => $str('ram:CategoryTradeTax/ram:CategoryCode', $c), 'vat_rate' => $num('ram:CategoryTradeTax/ram:RateApplicablePercent', $c),
+			'amount' => $num('ram:ActualAmount', $c),
+			'reason' => $str('ram:Reason', $c),
+			'reason_code' => $str('ram:ReasonCode', $c),
+			'vat_category' => $str('ram:CategoryTradeTax/ram:CategoryCode', $c),
+			'vat_rate' => $num('ram:CategoryTradeTax/ram:RateApplicablePercent', $c),
 		);
 	}
 
-	$sum = $st.'/ram:SpecifiedTradeSettlementHeaderMonetarySummation';
+	$sum = $st . '/ram:SpecifiedTradeSettlementHeaderMonetarySummation';
 	$taxTotal = null;
-	foreach ($nodes($sum.'/ram:TaxTotalAmount') as $n) {
+	foreach ($nodes($sum . '/ram:TaxTotalAmount') as $n) {
 		// BT-110 in the invoice currency (a second TaxTotalAmount may carry BT-111)
 		if ($taxTotal === null || $n->getAttribute('currencyID') === $inv['document']['currency']) {
 			$taxTotal = is_numeric(trim($n->textContent)) ? (float) trim($n->textContent) : null;
 		}
 	}
 	$inv['totals'] = array(
-		'line_total' => $num($sum.'/ram:LineTotalAmount'), 'allowance_total' => $num($sum.'/ram:AllowanceTotalAmount'),
-		'charge_total' => $num($sum.'/ram:ChargeTotalAmount'), 'tax_basis' => $num($sum.'/ram:TaxBasisTotalAmount'),
-		'tax_total' => $taxTotal, 'grand_total' => $num($sum.'/ram:GrandTotalAmount'), 'prepaid' => $num($sum.'/ram:TotalPrepaidAmount'),
-		'rounding' => $num($sum.'/ram:RoundingAmount'), 'due_payable' => $num($sum.'/ram:DuePayableAmount'),
+		'line_total' => $num($sum . '/ram:LineTotalAmount'),
+		'allowance_total' => $num($sum . '/ram:AllowanceTotalAmount'),
+		'charge_total' => $num($sum . '/ram:ChargeTotalAmount'),
+		'tax_basis' => $num($sum . '/ram:TaxBasisTotalAmount'),
+		'tax_total' => $taxTotal,
+		'grand_total' => $num($sum . '/ram:GrandTotalAmount'),
+		'prepaid' => $num($sum . '/ram:TotalPrepaidAmount'),
+		'rounding' => $num($sum . '/ram:RoundingAmount'),
+		'due_payable' => $num($sum . '/ram:DuePayableAmount'),
 	);
 
-	foreach ($nodes($tx.'/ram:IncludedSupplyChainTradeLineItem') as $li) {
+	foreach ($nodes($tx . '/ram:IncludedSupplyChainTradeLineItem') as $li) {
 		$gtin = '';
 		foreach ($nodes('ram:SpecifiedTradeProduct/ram:GlobalID', $li) as $g) {
 			if ($g->getAttribute('schemeID') === '0160') {
@@ -323,15 +367,17 @@ function auvorechnungsimport_parse_cii($dom)
 
 	// BG-24 supporting documents only (TypeCode 916); 50 = tender reference
 	// (BT-17) and 130 = invoiced object (BT-18) share the element in CII.
-	foreach ($nodes($ag.'/ram:AdditionalReferencedDocument[ram:TypeCode = "916"]') as $ad) {
+	foreach ($nodes($ag . '/ram:AdditionalReferencedDocument[ram:TypeCode = "916"]') as $ad) {
 		$bin = null;
 		foreach ($nodes('ram:AttachmentBinaryObject', $ad) as $b) {
 			$bin = $b;
 		}
 		$inv['attachments'][] = array(
-			'id' => $str('ram:IssuerAssignedID', $ad), 'description' => $str('ram:Name', $ad),
+			'id' => $str('ram:IssuerAssignedID', $ad),
+			'description' => $str('ram:Name', $ad),
 			'uri' => $str('ram:URIID', $ad),
-			'name' => $bin ? $bin->getAttribute('filename') : '', 'mime' => $bin ? $bin->getAttribute('mimeCode') : '',
+			'name' => $bin ? $bin->getAttribute('filename') : '',
+			'mime' => $bin ? $bin->getAttribute('mimeCode') : '',
 			'content' => $bin ? (string) base64_decode(preg_replace('/\s+/', '', $bin->textContent)) : '',
 		);
 	}
@@ -350,7 +396,7 @@ function auvorechnungsimport_parse_ubl($dom, $isCreditNote)
 {
 	$root = $isCreditNote ? 'CreditNote' : 'Invoice';
 	$xp = new DOMXPath($dom);
-	$xp->registerNamespace('r', 'urn:oasis:names:specification:ubl:schema:xsd:'.$root.'-2');
+	$xp->registerNamespace('r', 'urn:oasis:names:specification:ubl:schema:xsd:' . $root . '-2');
 	$xp->registerNamespace('cac', 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2');
 	$xp->registerNamespace('cbc', 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2');
 	$h = auvorechnungsimport_xpath_helpers($xp);
@@ -358,18 +404,18 @@ function auvorechnungsimport_parse_ubl($dom, $isCreditNote)
 	$num = $h['num'];
 	$nodes = $h['nodes'];
 	$attr = $h['attr'];
-	$r = '/r:'.$root;
+	$r = '/r:' . $root;
 
 	$inv = auvorechnungsimport_einvoice_skeleton('ubl');
 	$d = &$inv['document'];
-	$d['id'] = $str($r.'/cbc:ID');
-	$d['type_code'] = $str($r.'/cbc:'.$root.'TypeCode');
+	$d['id'] = $str($r . '/cbc:ID');
+	$d['type_code'] = $str($r . '/cbc:' . $root . 'TypeCode');
 	$d['is_credit_note'] = $isCreditNote || $d['type_code'] === '381';
-	$d['issue_date'] = $str($r.'/cbc:IssueDate');
-	$d['due_date'] = $str($r.'/cbc:DueDate') !== '' ? $str($r.'/cbc:DueDate') : $str($r.'/cac:PaymentMeans/cbc:PaymentDueDate');
-	$d['specification'] = $str($r.'/cbc:CustomizationID');
-	$d['business_process'] = $str($r.'/cbc:ProfileID');
-	foreach ($nodes($r.'/cbc:Note') as $n) {
+	$d['issue_date'] = $str($r . '/cbc:IssueDate');
+	$d['due_date'] = $str($r . '/cbc:DueDate') !== '' ? $str($r . '/cbc:DueDate') : $str($r . '/cac:PaymentMeans/cbc:PaymentDueDate');
+	$d['specification'] = $str($r . '/cbc:CustomizationID');
+	$d['business_process'] = $str($r . '/cbc:ProfileID');
+	foreach ($nodes($r . '/cbc:Note') as $n) {
 		// BT-21 has no UBL element: convention "#SUBJECTCODE#text"
 		$text = trim($n->textContent);
 		$subject = '';
@@ -379,24 +425,24 @@ function auvorechnungsimport_parse_ubl($dom, $isCreditNote)
 		}
 		$d['notes'][] = array('subject' => $subject, 'content' => $text);
 	}
-	$d['currency'] = $str($r.'/cbc:DocumentCurrencyCode');
-	$d['buyer_reference'] = $str($r.'/cbc:BuyerReference');
+	$d['currency'] = $str($r . '/cbc:DocumentCurrencyCode');
+	$d['buyer_reference'] = $str($r . '/cbc:BuyerReference');
 	// BT-13. UBL makes OrderReference/ID mandatory even when only a sales
 	// order reference (BT-14) is given; Peppol fills it with "NA" then.
-	$d['order_reference'] = $str($r.'/cac:OrderReference/cbc:ID');
+	$d['order_reference'] = $str($r . '/cac:OrderReference/cbc:ID');
 	if (strtoupper($d['order_reference']) === 'NA') {
 		$d['order_reference'] = '';
 	}
-	$d['contract_reference'] = $str($r.'/cac:ContractDocumentReference/cbc:ID');
-	$d['project_reference'] = $str($r.'/cac:ProjectReference/cbc:ID');
-	$d['period_start'] = $str($r.'/cac:InvoicePeriod/cbc:StartDate');
-	$d['period_end'] = $str($r.'/cac:InvoicePeriod/cbc:EndDate');
+	$d['contract_reference'] = $str($r . '/cac:ContractDocumentReference/cbc:ID');
+	$d['project_reference'] = $str($r . '/cac:ProjectReference/cbc:ID');
+	$d['period_start'] = $str($r . '/cac:InvoicePeriod/cbc:StartDate');
+	$d['period_end'] = $str($r . '/cac:InvoicePeriod/cbc:EndDate');
 	$terms = array();
-	foreach ($nodes($r.'/cac:PaymentTerms/cbc:Note') as $n) {
+	foreach ($nodes($r . '/cac:PaymentTerms/cbc:Note') as $n) {
 		$terms[] = trim($n->textContent);
 	}
 	$d['payment_terms'] = implode("\n", array_filter($terms, 'strlen'));
-	foreach ($nodes($r.'/cac:BillingReference/cac:InvoiceDocumentReference') as $n) {
+	foreach ($nodes($r . '/cac:BillingReference/cac:InvoiceDocumentReference') as $n) {
 		$d['preceding_invoices'][] = array('ref' => $str('cbc:ID', $n), 'date' => $str('cbc:IssueDate', $n));
 	}
 	unset($d);
@@ -406,9 +452,17 @@ function auvorechnungsimport_parse_ubl($dom, $isCreditNote)
 		if (!$node) {
 			return null;
 		}
-		$p = array('name' => $str('cac:PartyLegalEntity/cbc:RegistrationName', $node), 'trading_name' => $str('cac:PartyName/cbc:Name', $node),
-			'ids' => array(), 'legal_id' => $str('cac:PartyLegalEntity/cbc:CompanyID', $node), 'vat_id' => '', 'tax_id' => '',
-			'address' => null, 'contact' => null, 'endpoint' => null);
+		$p = array(
+			'name' => $str('cac:PartyLegalEntity/cbc:RegistrationName', $node),
+			'trading_name' => $str('cac:PartyName/cbc:Name', $node),
+			'ids' => array(),
+			'legal_id' => $str('cac:PartyLegalEntity/cbc:CompanyID', $node),
+			'vat_id' => '',
+			'tax_id' => '',
+			'address' => null,
+			'contact' => null,
+			'endpoint' => null
+		);
 		if ($p['name'] === '') {
 			$p['name'] = $p['trading_name'];
 		}
@@ -443,19 +497,19 @@ function auvorechnungsimport_parse_ubl($dom, $isCreditNote)
 		}
 		return null;
 	};
-	$inv['seller'] = $party($first($r.'/cac:AccountingSupplierParty/cac:Party'));
-	$inv['buyer'] = $party($first($r.'/cac:AccountingCustomerParty/cac:Party'));
-	$inv['payee'] = $str($r.'/cac:PayeeParty/cac:PartyName/cbc:Name');
+	$inv['seller'] = $party($first($r . '/cac:AccountingSupplierParty/cac:Party'));
+	$inv['buyer'] = $party($first($r . '/cac:AccountingCustomerParty/cac:Party'));
+	$inv['payee'] = $str($r . '/cac:PayeeParty/cac:PartyName/cbc:Name');
 	$inv['payment']['creditor_id'] = $creditorId;
 
-	$loc = $first($r.'/cac:Delivery/cac:DeliveryLocation/cac:Address');
+	$loc = $first($r . '/cac:Delivery/cac:DeliveryLocation/cac:Address');
 	$inv['delivery'] = array(
-		'date'    => $str($r.'/cac:Delivery/cbc:ActualDeliveryDate'),
-		'name'    => $str($r.'/cac:Delivery/cac:DeliveryParty/cac:PartyName/cbc:Name'),
+		'date'    => $str($r . '/cac:Delivery/cbc:ActualDeliveryDate'),
+		'name'    => $str($r . '/cac:Delivery/cac:DeliveryParty/cac:PartyName/cbc:Name'),
 		'address' => $loc ? auvorechnungsimport_ubl_address($loc, $str) : null,
 	);
 
-	foreach ($nodes($r.'/cac:PaymentMeans') as $pm) {
+	foreach ($nodes($r . '/cac:PaymentMeans') as $pm) {
 		if ($inv['payment']['remittance'] === '') {
 			$inv['payment']['remittance'] = $str('cbc:PaymentID', $pm);
 		}
@@ -473,7 +527,7 @@ function auvorechnungsimport_parse_ubl($dom, $isCreditNote)
 
 	// BG-23: the TaxTotal with subtotals (a second TaxTotal may carry BT-111)
 	$taxTotal = null;
-	foreach ($nodes($r.'/cac:TaxTotal') as $tt) {
+	foreach ($nodes($r . '/cac:TaxTotal') as $tt) {
 		$subs = $nodes('cac:TaxSubtotal', $tt);
 		if (count($subs) === 0 && $taxTotal !== null) {
 			continue;
@@ -481,30 +535,41 @@ function auvorechnungsimport_parse_ubl($dom, $isCreditNote)
 		$taxTotal = $num('cbc:TaxAmount', $tt);
 		foreach ($subs as $sub) {
 			$inv['vat_breakdown'][] = array(
-				'category' => $str('cac:TaxCategory/cbc:ID', $sub), 'rate' => $num('cac:TaxCategory/cbc:Percent', $sub),
-				'basis' => $num('cbc:TaxableAmount', $sub), 'tax' => $num('cbc:TaxAmount', $sub),
-				'exemption_reason' => $str('cac:TaxCategory/cbc:TaxExemptionReason', $sub), 'exemption_code' => $str('cac:TaxCategory/cbc:TaxExemptionReasonCode', $sub),
+				'category' => $str('cac:TaxCategory/cbc:ID', $sub),
+				'rate' => $num('cac:TaxCategory/cbc:Percent', $sub),
+				'basis' => $num('cbc:TaxableAmount', $sub),
+				'tax' => $num('cbc:TaxAmount', $sub),
+				'exemption_reason' => $str('cac:TaxCategory/cbc:TaxExemptionReason', $sub),
+				'exemption_code' => $str('cac:TaxCategory/cbc:TaxExemptionReasonCode', $sub),
 			);
 		}
 	}
-	foreach ($nodes($r.'/cac:AllowanceCharge') as $c) {
+	foreach ($nodes($r . '/cac:AllowanceCharge') as $c) {
 		$inv['allowances'][] = array(
 			'is_charge' => strtolower($str('cbc:ChargeIndicator', $c)) === 'true',
-			'amount' => $num('cbc:Amount', $c), 'reason' => $str('cbc:AllowanceChargeReason', $c), 'reason_code' => $str('cbc:AllowanceChargeReasonCode', $c),
-			'vat_category' => $str('cac:TaxCategory/cbc:ID', $c), 'vat_rate' => $num('cac:TaxCategory/cbc:Percent', $c),
+			'amount' => $num('cbc:Amount', $c),
+			'reason' => $str('cbc:AllowanceChargeReason', $c),
+			'reason_code' => $str('cbc:AllowanceChargeReasonCode', $c),
+			'vat_category' => $str('cac:TaxCategory/cbc:ID', $c),
+			'vat_rate' => $num('cac:TaxCategory/cbc:Percent', $c),
 		);
 	}
-	$lm = $r.'/cac:LegalMonetaryTotal';
+	$lm = $r . '/cac:LegalMonetaryTotal';
 	$inv['totals'] = array(
-		'line_total' => $num($lm.'/cbc:LineExtensionAmount'), 'allowance_total' => $num($lm.'/cbc:AllowanceTotalAmount'),
-		'charge_total' => $num($lm.'/cbc:ChargeTotalAmount'), 'tax_basis' => $num($lm.'/cbc:TaxExclusiveAmount'),
-		'tax_total' => $taxTotal, 'grand_total' => $num($lm.'/cbc:TaxInclusiveAmount'), 'prepaid' => $num($lm.'/cbc:PrepaidAmount'),
-		'rounding' => $num($lm.'/cbc:PayableRoundingAmount'), 'due_payable' => $num($lm.'/cbc:PayableAmount'),
+		'line_total' => $num($lm . '/cbc:LineExtensionAmount'),
+		'allowance_total' => $num($lm . '/cbc:AllowanceTotalAmount'),
+		'charge_total' => $num($lm . '/cbc:ChargeTotalAmount'),
+		'tax_basis' => $num($lm . '/cbc:TaxExclusiveAmount'),
+		'tax_total' => $taxTotal,
+		'grand_total' => $num($lm . '/cbc:TaxInclusiveAmount'),
+		'prepaid' => $num($lm . '/cbc:PrepaidAmount'),
+		'rounding' => $num($lm . '/cbc:PayableRoundingAmount'),
+		'due_payable' => $num($lm . '/cbc:PayableAmount'),
 	);
 
 	$lineTag = $isCreditNote ? 'CreditNoteLine' : 'InvoiceLine';
 	$qtyTag = $isCreditNote ? 'CreditedQuantity' : 'InvoicedQuantity';
-	foreach ($nodes($r.'/cac:'.$lineTag) as $li) {
+	foreach ($nodes($r . '/cac:' . $lineTag) as $li) {
 		$gtin = '';
 		foreach ($nodes('cac:Item/cac:StandardItemIdentification/cbc:ID', $li) as $g) {
 			if ($g->getAttribute('schemeID') === '0160') {
@@ -519,8 +584,8 @@ function auvorechnungsimport_parse_ubl($dom, $isCreditNote)
 			'seller_item_id' => $str('cac:Item/cac:SellersItemIdentification/cbc:ID', $li),
 			'buyer_item_id' => $str('cac:Item/cac:BuyersItemIdentification/cbc:ID', $li),
 			'gtin' => $gtin,
-			'quantity' => $num('cbc:'.$qtyTag, $li),
-			'unit_code' => $attr('cbc:'.$qtyTag, 'unitCode', $li),
+			'quantity' => $num('cbc:' . $qtyTag, $li),
+			'unit_code' => $attr('cbc:' . $qtyTag, 'unitCode', $li),
 			'net_price' => $num('cac:Price/cbc:PriceAmount', $li),
 			'base_quantity' => $num('cac:Price/cbc:BaseQuantity', $li),
 			'net_amount' => $num('cbc:LineExtensionAmount', $li),
@@ -532,15 +597,17 @@ function auvorechnungsimport_parse_ubl($dom, $isCreditNote)
 	}
 
 	// BG-24 supporting documents; DocumentTypeCode 130 is the invoiced object (BT-18)
-	foreach ($nodes($r.'/cac:AdditionalDocumentReference[not(cbc:DocumentTypeCode = "130")]') as $ad) {
+	foreach ($nodes($r . '/cac:AdditionalDocumentReference[not(cbc:DocumentTypeCode = "130")]') as $ad) {
 		$bin = null;
 		foreach ($nodes('cac:Attachment/cbc:EmbeddedDocumentBinaryObject', $ad) as $b) {
 			$bin = $b;
 		}
 		$inv['attachments'][] = array(
-			'id' => $str('cbc:ID', $ad), 'description' => $str('cbc:DocumentDescription', $ad),
+			'id' => $str('cbc:ID', $ad),
+			'description' => $str('cbc:DocumentDescription', $ad),
 			'uri' => $str('cac:Attachment/cac:ExternalReference/cbc:URI', $ad),
-			'name' => $bin ? $bin->getAttribute('filename') : '', 'mime' => $bin ? $bin->getAttribute('mimeCode') : '',
+			'name' => $bin ? $bin->getAttribute('filename') : '',
+			'mime' => $bin ? $bin->getAttribute('mimeCode') : '',
 			'content' => $bin ? (string) base64_decode(preg_replace('/\s+/', '', $bin->textContent)) : '',
 		);
 	}
@@ -558,9 +625,13 @@ function auvorechnungsimport_parse_ubl($dom, $isCreditNote)
 function auvorechnungsimport_ubl_address($a, $str)
 {
 	return array(
-		'line1' => $str('cbc:StreetName', $a), 'line2' => $str('cbc:AdditionalStreetName', $a), 'line3' => $str('cac:AddressLine/cbc:Line', $a),
-		'postcode' => $str('cbc:PostalZone', $a), 'city' => $str('cbc:CityName', $a),
-		'subdivision' => $str('cbc:CountrySubentity', $a), 'country' => $str('cac:Country/cbc:IdentificationCode', $a),
+		'line1' => $str('cbc:StreetName', $a),
+		'line2' => $str('cbc:AdditionalStreetName', $a),
+		'line3' => $str('cac:AddressLine/cbc:Line', $a),
+		'postcode' => $str('cbc:PostalZone', $a),
+		'city' => $str('cbc:CityName', $a),
+		'subdivision' => $str('cbc:CountrySubentity', $a),
+		'country' => $str('cac:Country/cbc:IdentificationCode', $a),
 	);
 }
 
@@ -579,7 +650,7 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 	$seller = $inv['seller'] ?? array();
 	$smallBusiness = false;
 	foreach (($inv['vat_breakdown'] ?? array()) as $tax) {
-		$exemptionText = (string) ($tax['exemption_reason'] ?? '').' '.(string) ($tax['exemption_code'] ?? '');
+		$exemptionText = (string) ($tax['exemption_reason'] ?? '') . ' ' . (string) ($tax['exemption_code'] ?? '');
 		if (auvorechnungsimport_einvoice_is_small_business_note($exemptionText)) {
 			$smallBusiness = true;
 			break;
@@ -670,10 +741,13 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 		$sellerEmail = (string) ($seller['endpoint']['id'] ?? '');
 	}
 	$sellerIban = '';
+	$sellerAccountHolder = '';
 	foreach (($inv['payment']['means'] ?? array()) as $paymentMean) {
+		if ($sellerAccountHolder === '' && !empty($paymentMean['account_name'])) {
+			$sellerAccountHolder = (string) $paymentMean['account_name'];
+		}
 		if (!empty($paymentMean['iban'])) {
 			$sellerIban = (string) $paymentMean['iban'];
-			break;
 		}
 	}
 	return array(
@@ -689,6 +763,7 @@ function auvorechnungsimport_einvoice_to_fields($inv)
 		'supplier_contact_firstname' => $contactFirstName,
 		'supplier_contact_lastname' => $contactLastName,
 		'supplier_iban' => $sellerIban,
+		'supplier_account_holder' => $sellerAccountHolder,
 		'invoice_ref' => $inv['document']['id'],
 		'invoice_date' => $inv['document']['issue_date'] !== '' ? $inv['document']['issue_date'] : null,
 		'due_date' => $inv['document']['due_date'],

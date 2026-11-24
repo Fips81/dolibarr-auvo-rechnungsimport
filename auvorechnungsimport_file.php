@@ -39,18 +39,16 @@ $canReadBlockedLog = isModEnabled('blockedlog') && ($user->admin || $user->hasRi
 if ($isBlockedLogPreview ? (!$canReadImport && !$canReadBlockedLog) : !$canReadImport) accessforbidden();
 
 $id = GETPOSTINT('id');
-$object = new ImportedInvoice($db);
-if ($id <= 0 || $object->fetch($id) <= 0) {
-	accessforbidden('Not found');
-}
 
 // Preview the immutable copy held in BlockedLog. This also works for
-// auto-detected duplicates, which deliberately have no second disk copy.
+// auto-detected duplicates and after the import row/file has been deleted.
+// The URL's id is the stable fk_object retained in BlockedLog, not a disk path.
 if ($isBlockedLogPreview) {
-	if (!isModEnabled('blockedlog')) accessforbidden('Not found');
+	if (!isModEnabled('blockedlog') || $id <= 0) accessforbidden('Not found');
 	require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
-	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE element = 'importedinvoice' AND fk_object = ".((int) $object->id);
-	$sql .= " AND action IN ('AUVORECHNUNGSIMPORT_RECEIVED', 'AUVORECHNUNGSIMPORT_DUPLICATE_AUTO') AND entity = ".((int) $object->entity)." ORDER BY rowid DESC".$db->plimit(1);
+	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE element = 'importedinvoice' AND fk_object = ".((int) $id);
+	$sql .= " AND action IN ('AUVORECHNUNGSIMPORT_RECEIVED', 'AUVORECHNUNGSIMPORT_DUPLICATE_AUTO')";
+	$sql .= " AND entity IN (".getEntity('blockedlog').") ORDER BY rowid ASC".$db->plimit(1);
 	$resql = $db->query($sql);
 	$block = null;
 	if ($resql && ($row = $db->fetch_object($resql))) {
@@ -66,7 +64,7 @@ if ($isBlockedLogPreview) {
 	$mime = (string) ($data->mime_type ?? 'application/octet-stream');
 	$inline = $mime === 'application/pdf';
 	if (!$inline && !in_array($mime, array('application/xml', 'text/xml'), true)) $mime = 'application/octet-stream';
-	$name = dol_sanitizeFileName((string) ($data->filename ?? $object->original_filename));
+	$name = dol_sanitizeFileName((string) ($data->filename ?? 'original-document'));
 	header('Content-Type: '.$mime);
 	header('Content-Disposition: '.($inline ? 'inline' : 'attachment').'; filename="'.$name.'"');
 	header('X-Content-Type-Options: nosniff');
@@ -74,6 +72,11 @@ if ($isBlockedLogPreview) {
 	header('Content-Length: '.strlen($binary));
 	print $binary;
 	exit;
+}
+
+$object = new ImportedInvoice($db);
+if ($id <= 0 || $object->fetch($id) <= 0) {
+	accessforbidden('Not found');
 }
 
 if (empty($object->filepath)) accessforbidden('Not found');

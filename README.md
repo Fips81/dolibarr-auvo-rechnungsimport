@@ -8,8 +8,7 @@ Positionen, schlägt Lieferant und Artikel vor und legt nach deiner Prüfung
 daraus eine Lieferantenrechnung an.
 
 - **E-Rechnungen exakt:** XRechnung (CII und UBL), Peppol BIS, ZUGFeRD /
-  Factur-X – als XML-Datei oder in der PDF eingebettet. Seit 2025 müssen
-  Unternehmen in Deutschland E-Rechnungen empfangen können.
+  Factur-X – als XML-Datei oder in der PDF eingebettet.
 - **Normale PDFs und Scans:** Textlayer der PDF, sonst Texterkennung (OCR)
   mit Tesseract – lokal auf dem Server.
 - **Lernt mit:** Artikelzuordnung pro Lieferant, Produktvarianten, Kosten- und
@@ -37,11 +36,9 @@ Gegenstück zu [AuVo E-Rechnung](https://github.com/Fips81/dolibarr-auvo-erechnu
   ```
   apt install poppler-utils tesseract-ocr tesseract-ocr-deu tesseract-ocr-fra tesseract-ocr-eng
   ```
-  Windows e.g.
-  ```
-  choco install poppler
-  choco install capture2text --version 3.9 # tesseract not avalable anymore in more recent versions
-  ```
+  On Windows, install Poppler and Tesseract using a package manager or their
+  available Windows distributions. Make sure `pdftotext`, `pdftoppm`, and
+  `tesseract` are available to the PHP/CLI process through `PATH`.
 
   Ohne diese Pakete funktionieren XRechnung und ZUGFeRD trotzdem.
   PDFs mit Textebene können ebenfalls oft gut geparst werden.
@@ -218,8 +215,10 @@ einmal):
   kodiert mit SHA-256 gespeichert; bei der Freigabe folgt ein Eintrag zur
   validierten Lieferantenrechnung einschließlich der finalen Positionen. Beide
   Logeinträge werden über die Importreferenz verknüpft. Wegen des MEDIUMTEXT-Speichers sind dabei
-  Dateien bis 10 MB unterstützt. Löschen des Importdatensatzes entfernt den
-  bereits geschriebenen BlockedLog-Eintrag nicht.
+  Dateien bis 10 MB unterstützt. Die Vorschau des Originals liest ausschließlich
+  die Base64-Kopie aus BlockedLog. Löschen des Importdatensatzes entfernt den
+  Logeintrag und dessen Originaldatei nicht; die Vorschau bleibt über den
+  gespeicherten Logeintrag erreichbar.
 - **Mehrfach-Upload mit Cron-Analyse**: Beliebig viele PDFs und XML-Dateien
   auf einmal hochladen (Server-Grenzen `max_file_uploads`, `upload_max_filesize`,
   `post_max_size` werden im Formular angezeigt). Die Dateien werden nur
@@ -244,6 +243,14 @@ einmal):
   wird zusätzlich dessen MD5-Index durchsucht; ein Treffer wird durch erneuten
   SHA-256-Vergleich der gespeicherten Datei bestätigt. ECM-Dateien müssen dafür
   im ECM-Index registriert sein.
+- **E-Mail-Spam-Prüfung:** Ein optional konfigurierter Mail-Header und Wert
+  halten markierte Email-Collector-Anhänge zunächst in einer eigenen
+  Spam-Prüfung. Nach Sichtprüfung kann ein Beleg freigegeben oder als Spam
+  bestätigt werden. Bestätigte Spam-Belege und Duplikate erscheinen unter
+  „Spam & Duplikate“; die Bestätigung wird im BlockedLog protokolliert.
+- **Erinnerungen:** Ein täglicher Dolibarr-Cronjob sendet eine Sammelmail für
+  überfällige Importe. Empfänger, erste Frist und Wiederholungen mit wachsendem
+  Abstand lassen sich in den Moduleinstellungen konfigurieren.
 - **Durchgehen**: Filter „Zu prüfen“, Button „Prüfen starten“, auf der Karte
   „Nächste prüfen“ und nach dem Anlegen ein Link zur nächsten Rechnung.
   „Erneut erkennen“ stellt den Import ebenfalls wieder in die Cron-Queue.
@@ -261,14 +268,18 @@ einmal):
 
 ## Datenschutz
 
-Rechnungen verlassen den Server nicht: Lesen, Texterkennung und Zuordnung
-laufen vollständig lokal, ohne Cloud-Dienst oder externe API.
+Das Lesen von Rechnungen, OCR, Lieferanten-/Artikelzuordnung und
+Duplikatprüfung laufen lokal auf dem Dolibarr-Server. Wenn eine gültige deutsche
+IBAN erkannt wird, fragt das Modul zur Anreicherung von Bankname und BIC die
+aus ihr abgeleitete 8-stellige Bankleitzahl bei Fintech Toolbox ab. Dabei werden
+weder die Rechnungsdatei noch die IBAN übermittelt. Die Bankabfrage ist die
+einzige externe API-Anfrage des Moduls.
 
 ## Tests
 
 `php tests/einvoice-tests.php` prüft den E-Rechnungs-Leser mit den mitgelieferten
-Beispieldateien. `bash tests/kosit-testsuite.sh` lädt zusätzlich die offizielle
-KoSIT-Testsuite herunter und prüft 86 XML-Beispiele. Dafür werden Bash, PHP CLI,
+Beispieldateien. `bash tests/kosit-testsuite.sh` lädt zusätzlich das offizielle
+KoSIT-Testbundle herunter und prüft dessen XML-Beispiele. Dafür werden Bash, PHP CLI,
 `curl`, `sha256sum` und Python 3 benötigt; den Python-Interpreter kann man über
 `PYTHON` vorgeben. Beide Prüfungen und ein PHP-Syntaxcheck laufen in der
 GitHub-CI bei Pushes und Pull Requests.

@@ -1,7 +1,7 @@
 <?php
 /* Copyright (C) 2026 auvo-design <r.vogel@auvo-design.de> */
 
-require_once DOL_DOCUMENT_ROOT.'/core/triggers/dolibarrtriggers.class.php';
+require_once DOL_DOCUMENT_ROOT . '/core/triggers/dolibarrtriggers.class.php';
 
 /** Keep validated supplier invoices immutable after they are recorded in BlockedLog. */
 class InterfaceAuvoRechnungsimportTriggers extends DolibarrTriggers
@@ -35,7 +35,7 @@ class InterfaceAuvoRechnungsimportTriggers extends DolibarrTriggers
 		}
 		if ($invoiceId <= 0) return 0;
 
-		$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE action = 'BILL_SUPPLIER_VALIDATE' AND element = 'invoice_supplier' AND fk_object = ".$invoiceId.$this->db->plimit(1);
+		$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "blockedlog WHERE action = 'BILL_SUPPLIER_VALIDATE' AND element = 'invoice_supplier' AND fk_object = " . $invoiceId . $this->db->plimit(1);
 		$resql = $this->db->query($sql);
 		if ($resql && $this->db->num_rows($resql) > 0) {
 			$object->error = $langs->trans('AuvoRechnungsimportErrLoggedInvoiceImmutable');

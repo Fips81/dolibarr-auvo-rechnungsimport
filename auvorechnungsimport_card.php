@@ -57,14 +57,20 @@ if ($object->fetch($id) <= 0) {
 }
 $extracted = $object->getExtractedData();
 $supplierMode = GETPOST('supplier_mode', 'alpha');
+$savedSupplierMode = (string) ($extracted['review_supplier_mode'] ?? '');
+if (!in_array($supplierMode, array('new', 'existing'), true) && in_array($savedSupplierMode, array('new', 'existing'), true)) {
+	$supplierMode = $savedSupplierMode;
+}
 $manualSupplierCreateAllowed = getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') && $user->hasRight('societe', 'creer');
 if (!in_array($supplierMode, array('new', 'existing'), true)) {
 	$supplierMode = ((int) $object->fk_soc > 0 || !auvorechnungsimport_can_create_supplier_from_fields($user, $extracted)) ? 'existing' : 'new';
 }
+if ($supplierMode === 'new' && !$manualSupplierCreateAllowed) $supplierMode = 'existing';
 $supplierPreviewFields = $extracted;
 if ($supplierMode === 'new') {
 	$postedSupplierName = GETPOST('supplier_value_name', 'restricthtml');
-	if (trim((string) $postedSupplierName) !== '') $supplierPreviewFields['supplier_name'] = trim((string) $postedSupplierName);
+	if (isset($_POST['supplier_value_name'])) $supplierPreviewFields['supplier_name'] = trim((string) $postedSupplierName);
+	if (isset($_POST['supplier_value_vat'])) $supplierPreviewFields['supplier_vat'] = GETPOST('supplier_value_vat', 'restricthtml');
 	// Selecting "New supplier" is explicit confirmation to use the reviewed name,
 	// even when OCR could not mark its extraction as confident.
 	if (trim((string) ($supplierPreviewFields['supplier_name'] ?? '')) !== '') $supplierPreviewFields['supplier_name_confident'] = true;
@@ -72,9 +78,100 @@ if ($supplierMode === 'new') {
 if (in_array((int) $object->status, array(ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_SPAM_CONFIRMED), true) && in_array($action, array('createinvoice', 'reprocess', 'confirmduplicate', 'delete', 'confirm_delete'), true)) {
 	accessforbidden('Spam imports are held for review and cannot be processed from this page');
 }
+
+// Persist review edits as an import draft only. This deliberately does not
+// create/update a third party, supplier invoice, bank account, or blocked-log entry.
+if ($action === 'createinvoice' && GETPOST('save_review', 'alpha') === '1' && $user->hasRight('auvorechnungsimport', 'imports', 'write')) {
+	if (!GETPOSTISSET('token') || GETPOST('token') !== newToken()) accessforbidden('CSRF');
+	if (!in_array((int) $object->status, array(ImportedInvoice::STATUS_NEEDS_REVIEW, ImportedInvoice::STATUS_MATCHED, ImportedInvoice::STATUS_ERROR), true)) accessforbidden('Invalid import status');
+
+	$extracted['invoice_ref'] = trim(GETPOST('ref_supplier', 'alphanohtml'));
+	$postedDate = GETPOST('invoice_date', 'alpha');
+	if ($postedDate === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/', $postedDate)) $extracted['invoice_date'] = $postedDate;
+	$extracted['review_supplier_mode'] = in_array($supplierMode, array('new', 'existing'), true) ? $supplierMode : 'existing';
+	$selectedSupplierId = GETPOSTINT('fk_soc');
+	if ($extracted['review_supplier_mode'] === 'existing' && $selectedSupplierId > 0) {
+		$selectedSupplier = new Societe($db);
+		if ($selectedSupplier->fetch($selectedSupplierId) <= 0 || empty($selectedSupplier->fournisseur)) accessforbidden('Invalid supplier selection');
+	}
+	$object->fk_soc = ($extracted['review_supplier_mode'] === 'existing' && $selectedSupplierId > 0) ? $selectedSupplierId : null;
+	if ($object->fk_soc === null) $object->supplier_match_confidence = 'none';
+
+	$address = is_array($extracted['supplier_address'] ?? null) ? $extracted['supplier_address'] : array();
+	$reviewFields = array(
+		'name' => 'supplier_name', 'vat' => 'supplier_vat', 'tax_id' => 'supplier_tax_id', 'address' => null,
+		'zip' => null, 'town' => null, 'email' => 'supplier_email', 'phone' => 'supplier_phone',
+		'country' => 'supplier_country', 'iban' => 'supplier_iban', 'bankowner' => 'supplier_account_holder',
+	);
+	foreach ($reviewFields as $formField => $dataField) {
+		$postName = 'supplier_value_'.$formField;
+		if (!isset($_POST[$postName])) continue;
+		$value = trim((string) GETPOST($postName, $formField === 'country' ? 'alpha' : 'restricthtml'));
+		if ($formField === 'vat') $value = auvorechnungsimport_normalize_vat($value);
+		if ($formField === 'iban') $value = strtoupper(preg_replace('/\s+/', '', $value));
+		if ($dataField !== null) $extracted[$dataField] = $value;
+		elseif ($formField === 'address') $address['line1'] = $value;
+		elseif ($formField === 'zip') $address['postcode'] = $value;
+		elseif ($formField === 'town') $address['city'] = $value;
+		if ($formField === 'country') $extracted['supplier_country'] = strtoupper($value);
+	}
+	if (isset($_POST['supplier_value_address'])) $address['line1'] = trim((string) GETPOST('supplier_value_address', 'restricthtml'));
+	if (isset($_POST['supplier_value_zip'])) $address['postcode'] = trim((string) GETPOST('supplier_value_zip', 'restricthtml'));
+	if (isset($_POST['supplier_value_town'])) $address['city'] = trim((string) GETPOST('supplier_value_town', 'restricthtml'));
+	$extracted['supplier_address'] = $address;
+	if (isset($_POST['supplier_value_bankname'])) {
+		if (!isset($extracted['supplier_bank_details']) || !is_array($extracted['supplier_bank_details'])) $extracted['supplier_bank_details'] = array();
+		$extracted['supplier_bank_details']['bank_name'] = trim((string) GETPOST('supplier_value_bankname', 'restricthtml'));
+	}
+	$choices = array();
+	foreach (array('name', 'vat', 'tax_id', 'address', 'zip', 'town', 'email', 'phone', 'country', 'iban', 'bankowner', 'bankname', 'contact') as $field) {
+		$key = 'update_supplier_'.$field;
+		if (isset($_POST[$key])) {
+			$choice = GETPOST($key, 'alpha');
+			$choices[$field] = in_array($choice, array('update', 'keep'), true) ? $choice : '';
+		}
+	}
+	$extracted['review_supplier_choices'] = $choices;
+
+	$lines = isset($extracted['lines']) && is_array($extracted['lines']) ? $extracted['lines'] : array();
+	foreach ($lines as $i => &$line) {
+		$mode = GETPOST('line_mode_'.$i, 'aZ09');
+		if (in_array($mode, AUVORECHNUNGSIMPORT_LINE_MODES, true)) $line['mode'] = $mode;
+		$line['ref_supplier'] = trim((string) GETPOST('line_ref_supplier_'.$i, 'alphanohtml'));
+		$line['label'] = GETPOST('line_label_'.$i, 'restricthtml');
+		$line['qty'] = (float) price2num(GETPOST('line_qty_'.$i, 'alpha'));
+		$priceRaw = GETPOST('line_price_'.$i, 'alpha');
+		$line['price'] = ($priceRaw === '') ? null : (float) price2num($priceRaw, 'MU');
+		$line['vat_rate'] = GETPOST('line_vat_'.$i, 'alpha') === '' ? null : (float) price2num(GETPOST('line_vat_'.$i, 'alpha'));
+		$priceBase = GETPOST('line_price_base_'.$i, 'alpha');
+		if (in_array($priceBase, array('HT', 'TTC'), true)) $line['price_base'] = $priceBase;
+		$line['fk_product'] = GETPOSTINT('lineprod_'.$i);
+	}
+	unset($line);
+	$extracted['lines'] = $lines;
+	if (empty($lines)) {
+		$extracted['manual_line'] = array(
+			'mode' => in_array(GETPOST('manual_line_mode', 'aZ09'), AUVORECHNUNGSIMPORT_LINE_MODES, true) ? GETPOST('manual_line_mode', 'aZ09') : 'book',
+			'label' => trim((string) GETPOST('manual_line_label', 'restricthtml')),
+			'qty' => trim((string) GETPOST('manual_line_qty', 'alpha')),
+			'price' => trim((string) GETPOST('manual_line_price', 'alpha')),
+			'vat' => trim((string) GETPOST('manual_line_vat', 'alpha')),
+			'ref_supplier' => trim((string) GETPOST('manual_line_ref_supplier', 'alphanohtml')),
+			'fk_product' => GETPOSTINT('manual_line_product_id'),
+		);
+	}
+	$object->extracted_data = json_encode($extracted, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+	if ($object->update($user) > 0) {
+		setEventMessages($langs->trans('AuvoRechnungsimportReviewSaved'), null, 'mesgs');
+	} else {
+		setEventMessages($langs->trans('AuvoRechnungsimportReviewSaveFailed'), $object->errors, 'errors');
+	}
+	header('Location: '.$_SERVER['PHP_SELF'].'?id='.$object->id);
+	exit;
+}
 $nonSupplierMatchId = auvorechnungsimport_find_non_supplier_by_vat($db, (string) ($extracted['supplier_vat'] ?? ''));
 $previewSupplierId = $supplierMode === 'new' ? 0 : (GETPOSTINT('fk_soc') ?: (int) $object->fk_soc);
-$detectedOwnCompany = auvorechnungsimport_is_own_company_supplier($db, $extracted);
+$detectedOwnCompany = auvorechnungsimport_is_own_company_supplier($db, $supplierPreviewFields);
 $selectedOwnCompany = auvorechnungsimport_is_own_company_supplier($db, array(), $previewSupplierId);
 $selfSupplierBlocked = $selectedOwnCompany || ($detectedOwnCompany && ($supplierMode === 'new' || $previewSupplierId <= 0));
 $duplicateCandidateSupplierId = $previewSupplierId;
@@ -192,18 +289,23 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 		accessforbidden('CSRF');
 	}
 	$fkSoc = $supplierMode === 'new' ? 0 : GETPOSTINT('fk_soc');
-	$detectedOwnCompany = auvorechnungsimport_is_own_company_supplier($db, $extracted);
+	$detectedOwnCompany = auvorechnungsimport_is_own_company_supplier($db, $supplierPreviewFields);
 	$selectedOwnCompany = auvorechnungsimport_is_own_company_supplier($db, array(), $fkSoc);
 	$selfSupplierBlocked = $selectedOwnCompany || ($detectedOwnCompany && ($supplierMode === 'new' || $fkSoc <= 0));
 	$refSupplier = GETPOST('ref_supplier', 'alphanohtml');
 	$invoiceDate = GETPOST('invoice_date', 'alpha');
+	$requireInvoiceRef = getDolGlobalInt('AUVORECHNUNGSIMPORT_REQUIRE_INVOICE_REF');
 
 	$reviewTotals = auvorechnungsimport_check_review_totals($extracted);
 	$existingInvoice = auvorechnungsimport_find_existing_invoice($db, $fkSoc, $refSupplier);
-	if ($selfSupplierBlocked) {
+	if ($requireInvoiceRef && trim($refSupplier) === '') {
+		setEventMessages($langs->trans('AuvoRechnungsimportErrInvoiceRefRequired'), null, 'errors');
+	} elseif ($selfSupplierBlocked) {
 		setEventMessages($langs->trans('AuvoRechnungsimportErrOwnCompanySupplier'), null, 'errors');
 	} elseif (!empty($reviewTotals['missing_vat_lines'])) {
 		setEventMessages($langs->trans('AuvoRechnungsimportErrReviewVatRequired', implode(', ', $reviewTotals['missing_vat_lines'])), null, 'errors');
+	} elseif (!empty($reviewTotals['missing_product_lines'])) {
+		setEventMessages($langs->trans('AuvoRechnungsimportErrProductRequiredForTakeover', implode(', ', $reviewTotals['missing_product_lines'])), null, 'errors');
 	} elseif (!empty($reviewTotals['no_lines'])) {
 		setEventMessages($langs->trans('AuvoRechnungsimportErrReviewNoBookedLines'), null, 'errors');
 	} elseif ($reviewTotals['checked'] && !$reviewTotals['valid']) {
@@ -228,9 +330,15 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 		$selectedSupplier = new Societe($db);
 		if (!$autoCreateSupplier) $selectedSupplier->fetch($fkSoc);
 		$currentIban = '';
+		$currentBankOwner = '';
+		$currentBankName = '';
 		if (!$autoCreateSupplier) {
 			$selectedBank = new CompanyBankAccount($db);
-			if ($selectedBank->fetch(0, '', $fkSoc, -1) > 0) $currentIban = (string) $selectedBank->iban;
+			if ($selectedBank->fetch(0, '', $fkSoc, -1) > 0) {
+				$currentIban = (string) $selectedBank->iban;
+				$currentBankOwner = (string) $selectedBank->owner_name;
+				$currentBankName = (string) $selectedBank->bank;
+			}
 		}
 		$selectedContact = new Contact($db);
 		$currentContact = '';
@@ -238,7 +346,7 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 			$currentContact = trim($selectedContact->firstname.' '.$selectedContact->lastname);
 		}
 		$postedSupplierData = array();
-		foreach (array('name', 'address', 'zip', 'town', 'country', 'email', 'phone', 'vat') as $field) {
+		foreach (array('name', 'address', 'zip', 'town', 'country', 'email', 'phone', 'vat', 'tax_id', 'bankowner', 'bankname') as $field) {
 			$postedSupplierData[$field] = GETPOST('supplier_value_'.$field, $field === 'country' ? 'alpha' : 'restricthtml');
 		}
 		$address = is_array($extracted['supplier_address'] ?? null) ? $extracted['supplier_address'] : array();
@@ -252,7 +360,10 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 			'update_supplier_phone' => array((string) ($selectedSupplier->phone ?? ''), isset($_POST['supplier_value_phone']) ? $postedSupplierData['phone'] : (string) ($extracted['supplier_phone'] ?? ''), $user->hasRight('societe', 'creer'), 'phone'),
 			'update_supplier_country' => array(strtoupper((string) ($selectedSupplier->country_code ?? '')), strtoupper(isset($_POST['supplier_value_country']) ? $postedSupplierData['country'] : ((string) ($extracted['supplier_country'] ?? '') ?: 'DE')), $user->hasRight('societe', 'creer'), 'country'),
 			'update_supplier_vat' => array(auvorechnungsimport_normalize_vat($selectedSupplier->tva_intra ?? ''), auvorechnungsimport_normalize_vat(isset($_POST['supplier_value_vat']) ? $postedSupplierData['vat'] : ($extracted['supplier_vat'] ?? '')), $user->hasRight('societe', 'creer'), 'vat'),
+			'update_supplier_tax_id' => array((string) ($selectedSupplier->idprof1 ?? ''), isset($_POST['supplier_value_tax_id']) ? $postedSupplierData['tax_id'] : (string) ($extracted['supplier_tax_id'] ?? ''), $user->hasRight('societe', 'creer'), 'tax_id'),
 			'update_supplier_iban' => array($currentIban, (string) ($extracted['supplier_iban'] ?? ''), $user->hasRight('societe', 'creer'), 'iban'),
+			'update_supplier_bankowner' => array($currentBankOwner, isset($_POST['supplier_value_bankowner']) ? $postedSupplierData['bankowner'] : (string) ($extracted['supplier_account_holder'] ?? ''), $user->hasRight('societe', 'creer'), 'text'),
+			'update_supplier_bankname' => array($currentBankName, (string) (($extracted['supplier_bank_details']['bank_name'] ?? '') ?: ''), $user->hasRight('societe', 'creer'), 'text'),
 			'update_supplier_contact' => array($currentContact, trim((string) ($extracted['supplier_contact_firstname'] ?? '').' '.(string) ($extracted['supplier_contact_lastname'] ?? '')), $user->hasRight('societe', 'contact', 'creer'), 'contact'),
 		);
 		$comparisonRows['update_supplier_name'][0] = $autoCreateSupplier ? '' : $comparisonRows['update_supplier_name'][0];
@@ -261,6 +372,8 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 		$comparisonRows['update_supplier_town'][0] = $autoCreateSupplier ? '' : $comparisonRows['update_supplier_town'][0];
 		$comparisonRows['update_supplier_country'][0] = $autoCreateSupplier ? '' : $comparisonRows['update_supplier_country'][0];
 		$comparisonRows['update_supplier_vat'][0] = $autoCreateSupplier ? '' : $comparisonRows['update_supplier_vat'][0];
+		$comparisonRows['update_supplier_bankowner'][0] = $autoCreateSupplier ? '' : $comparisonRows['update_supplier_bankowner'][0];
+		$comparisonRows['update_supplier_bankname'][0] = $autoCreateSupplier ? '' : $comparisonRows['update_supplier_bankname'][0];
 		$unresolvedConflicts = array();
 		$supplierChoices = array();
 		foreach ($comparisonRows as $postName => $comparison) {
@@ -298,6 +411,9 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 			'phone' => $user->hasRight('societe', 'creer') && ($supplierChoices['update_supplier_phone'] ?? '') === 'update' ? $comparisonRows['update_supplier_phone'][1] : '',
 			'country' => $user->hasRight('societe', 'creer') && ($supplierChoices['update_supplier_country'] ?? '') === 'update' ? strtoupper($comparisonRows['update_supplier_country'][1]) : '',
 			'vat' => $user->hasRight('societe', 'creer') && ($supplierChoices['update_supplier_vat'] ?? '') === 'update' ? $comparisonRows['update_supplier_vat'][1] : '',
+			'tax_id' => $user->hasRight('societe', 'creer') && ($supplierChoices['update_supplier_tax_id'] ?? '') === 'update' ? $comparisonRows['update_supplier_tax_id'][1] : '',
+			'bankowner' => $user->hasRight('societe', 'creer') && ($supplierChoices['update_supplier_bankowner'] ?? '') === 'update' ? $comparisonRows['update_supplier_bankowner'][1] : '',
+			'bankname' => $user->hasRight('societe', 'creer') && ($supplierChoices['update_supplier_bankname'] ?? '') === 'update' ? $comparisonRows['update_supplier_bankname'][1] : '',
 		);
 		if ($result > 0 && !$autoCreateSupplier && count(array_filter($supplierChanges, 'strlen')) > 0) {
 			$supplier = new Societe($db);
@@ -311,6 +427,7 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 				if ($supplierChanges['email'] !== '') $supplier->email = $supplierChanges['email'];
 				if ($supplierChanges['phone'] !== '') $supplier->phone = $supplierChanges['phone'];
 				if ($supplierChanges['vat'] !== '') $supplier->tva_intra = $supplierChanges['vat'];
+				if ($supplierChanges['tax_id'] !== '') $supplier->idprof1 = $supplierChanges['tax_id'];
 				if ($supplierChanges['country'] !== '') {
 					$supplier->country_code = $supplierChanges['country'];
 					$supplier->country_id = 0;
@@ -329,6 +446,7 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 			$createFields['supplier_phone'] = $supplierChanges['phone'] !== '' ? $supplierChanges['phone'] : (string) ($extracted['supplier_phone'] ?? '');
 			$createFields['supplier_country'] = $supplierChanges['country'] !== '' ? $supplierChanges['country'] : (string) ($extracted['supplier_country'] ?? '');
 			$createFields['supplier_vat'] = $supplierChanges['vat'] !== '' ? $supplierChanges['vat'] : (string) ($extracted['supplier_vat'] ?? '');
+			$createFields['supplier_tax_id'] = $supplierChanges['tax_id'];
 			$createFields['supplier_address'] = array(
 				'line1' => $supplierChanges['address'] !== '' ? $supplierChanges['address'] : (string) ($address['line1'] ?? ''), 'line2' => (string) ($address['line2'] ?? ''), 'line3' => (string) ($address['line3'] ?? ''),
 				'postcode' => $supplierChanges['zip'] !== '' ? $supplierChanges['zip'] : (string) ($address['postcode'] ?? ''), 'city' => $supplierChanges['town'] !== '' ? $supplierChanges['town'] : (string) ($address['city'] ?? ''), 'country' => $supplierChanges['country'] !== '' ? $supplierChanges['country'] : (string) ($address['country'] ?? ''),
@@ -342,19 +460,25 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 		}
 		if ($result > 0 && $user->hasRight('societe', 'creer') && ($supplierChoices['update_supplier_iban'] ?? '') === 'update' && !empty($extracted['supplier_iban'])) {
 			$iban = preg_replace('/\\s+/', '', strtoupper((string) $extracted['supplier_iban']));
-			if (!checkIbanForAccount(null, $iban)) {
+			$bankDetails = is_array($extracted['supplier_bank_details'] ?? null) ? $extracted['supplier_bank_details'] : auvorechnungsimport_bank_details_from_iban($iban);
+			$bankName = ($supplierChoices['update_supplier_bankname'] ?? '') === 'update' ? (string) ($supplierChanges['bankname'] ?: ($bankDetails['bank_name'] ?? '')) : '';
+			$validIban = checkIbanForAccount(null, $iban);
+			if (strpos($iban, 'DE') === 0 && !auvorechnungsimport_is_valid_de_iban($iban)) $validIban = false;
+			if (!$validIban) {
 				$result = -1;
 				setEventMessages($langs->trans('IBANNotValid'), null, 'errors');
 			}
 			$ibanQuery = $db->query("SELECT rowid FROM ".MAIN_DB_PREFIX."societe_rib WHERE fk_soc = ".((int) $fkSoc));
 			$ibanExists = false;
 			$hasExistingBankAccount = false;
+			$matchingBank = null;
 			if ($result > 0 && $ibanQuery) {
 				while ($ibanRow = $db->fetch_object($ibanQuery)) {
 					$hasExistingBankAccount = true;
 					$existingBank = new CompanyBankAccount($db);
 					if ($existingBank->fetch((int) $ibanRow->rowid) > 0 && preg_replace('/\\s+/', '', strtoupper((string) $existingBank->iban)) === $iban) {
 						$ibanExists = true;
+						$matchingBank = $existingBank;
 						break;
 					}
 				}
@@ -362,20 +486,74 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 			if ($result > 0 && !$ibanExists) {
 				$bank = new CompanyBankAccount($db);
 				$bank->socid = $fkSoc;
+				$bank->type = 'ban';
+				$bank->status = Account::STATUS_OPEN;
 				if ($bank->create($user) > 0) {
 					$bank->iban = $iban;
-					$bank->label = 'IBAN from e-invoice';
+					$bank->bank = $bankName;
+					$bank->label = $bankName !== '' ? dol_trunc($bankName, 200) : 'Bankkonto '.substr($iban, -4);
+					$bank->code_banque = (string) ($bankDetails['bank_code'] ?? '');
+					$bank->number = (string) ($bankDetails['account_number'] ?? '');
+					$bank->bic = (string) ($bankDetails['bic'] ?? '');
+					$bank->currency_code = (string) ($bankDetails['currency_code'] ?? 'EUR');
+					$bank->fk_country = (int) getCountry((string) ($bankDetails['country_code'] ?? 'DE'), '3', $db);
+					$bank->country_code = (string) ($bankDetails['country_code'] ?? 'DE');
+					$bankAddress = trim((string) ($bankDetails['bank_postal_code'] ?? '').' '.(string) ($bankDetails['bank_city'] ?? ''));
+					$bank->address = $bankAddress;
+					$ownerName = ($supplierChoices['update_supplier_bankowner'] ?? '') === 'update' ? (string) $supplierChanges['bankowner'] : '';
+					$bank->owner_name = dol_trunc($ownerName, 60);
+					$supplierAddress = is_array($extracted['supplier_address'] ?? null) ? $extracted['supplier_address'] : array();
+					$normalizedOwner = preg_replace('/[^a-z0-9]/', '', strtolower($ownerName));
+					$normalizedSupplier = preg_replace('/[^a-z0-9]/', '', strtolower((string) ($extracted['supplier_name'] ?? '')));
+					if ($normalizedOwner !== '' && $normalizedOwner === $normalizedSupplier) {
+						$bank->owner_address = trim(implode(', ', array_filter(array(
+							(string) ($supplierAddress['line1'] ?? ''), (string) ($supplierAddress['line2'] ?? ''),
+							trim((string) ($supplierAddress['postcode'] ?? '').' '.(string) ($supplierAddress['city'] ?? '')),
+						), 'strlen')));
+						$bank->owner_country_id = (int) getCountry((string) ($supplierAddress['country'] ?? $bankDetails['country_code'] ?? 'DE'), '3', $db);
+					}
 					$bank->default_rib = $hasExistingBankAccount ? 0 : 1;
 					if ($bank->update($user) <= 0) $result = -1;
 				} else {
 					$result = -1;
 				}
-			} elseif ($result > 0 && !$hasExistingBankAccount && $ibanExists) {
-				$bank = new CompanyBankAccount($db);
-				if ($bank->fetch((int) $ibanRow->rowid) > 0) {
-					$bank->default_rib = 1;
-					if ($bank->update($user) <= 0) $result = -1;
+			} elseif ($result > 0 && $ibanExists && $matchingBank) {
+				$bankChanged = false;
+				if (($supplierChoices['update_supplier_bankname'] ?? '') === 'update' && $supplierChanges['bankname'] !== '') {
+					$matchingBank->bank = $supplierChanges['bankname'];
+					$matchingBank->label = dol_trunc($supplierChanges['bankname'], 200);
+					$bankChanged = true;
 				}
+				$fillBankFields = array(
+					'code_banque' => (string) ($bankDetails['bank_code'] ?? ''),
+					'number' => (string) ($bankDetails['account_number'] ?? ''),
+					'bic' => (string) ($bankDetails['bic'] ?? ''),
+					'currency_code' => (string) ($bankDetails['currency_code'] ?? 'EUR'),
+					'address' => trim((string) ($bankDetails['bank_postal_code'] ?? '').' '.(string) ($bankDetails['bank_city'] ?? '')),
+				);
+				foreach ($fillBankFields as $property => $value) {
+					if (trim((string) ($matchingBank->$property ?? '')) === '' && trim($value) !== '') {
+						$matchingBank->$property = $value;
+						$bankChanged = true;
+					}
+				}
+				if (empty($matchingBank->fk_country) && !empty($bankDetails['country_code'])) {
+					$matchingBank->fk_country = (int) getCountry((string) $bankDetails['country_code'], '3', $db);
+					$bankChanged = true;
+				}
+				if (trim((string) $matchingBank->label) === '' && $bankName !== '') {
+					$matchingBank->label = dol_trunc($bankName, 200);
+					$bankChanged = true;
+				}
+				if (!$hasExistingBankAccount) {
+					$matchingBank->default_rib = 1;
+					$bankChanged = true;
+				}
+				if (($supplierChoices['update_supplier_bankowner'] ?? '') === 'update' && $supplierChanges['bankowner'] !== '') {
+					$matchingBank->owner_name = dol_trunc($supplierChanges['bankowner'], 60);
+					$bankChanged = true;
+				}
+				if ($bankChanged && $matchingBank->update($user) <= 0) $result = -1;
 			}
 		}
 		if ($result > 0 && $user->hasRight('societe', 'contact', 'creer') && ($supplierChoices['update_supplier_contact'] ?? '') === 'update'
@@ -415,6 +593,22 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 		// Invoice lines: everything the user ticked in the review table, with the
 		// values as corrected there. The chosen product is learned for next time.
 		$extractedLines = isset($extracted['lines']) && is_array($extracted['lines']) ? $extracted['lines'] : array();
+		// Use the same invoice-line creation path for OCR/XML lines and the manual
+		// fallback row. The fallback is only a rendered row when extraction found
+		// nothing, so materialize its submitted values before processing it.
+		if (empty($extractedLines)) {
+			$extractedLines = array(array(
+				'source' => 'manual', '_manual' => true,
+				'mode' => GETPOST('manual_line_mode', 'aZ09'),
+				'ref_supplier' => GETPOST('manual_line_ref_supplier', 'alphanohtml'),
+				'label' => GETPOST('manual_line_label', 'restricthtml'),
+				'qty' => GETPOST('manual_line_qty', 'alpha'),
+				'price' => GETPOST('manual_line_price', 'alpha'),
+				'vat_rate' => GETPOST('manual_line_vat', 'alpha'),
+				'price_base' => GETPOST('manual_line_price_base', 'alpha'),
+				'fk_product' => GETPOSTINT('manual_line_product_id'),
+			));
+		}
 		$updateBuyprice = GETPOSTINT('update_buyprice') && $canUpdateBuyprice;
 		$productTypes = array();
 		$createdVariants = array();
@@ -422,12 +616,22 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 			if ($result <= 0) {
 				break;
 			}
-			$mode = GETPOST('line_mode_'.$i, 'aZ09');
+			$isManualLine = !empty($line['_manual']);
+			$modeField = $isManualLine ? 'manual_line_mode' : 'line_mode_'.$i;
+			$refField = $isManualLine ? 'manual_line_ref_supplier' : 'line_ref_supplier_'.$i;
+			$labelField = $isManualLine ? 'manual_line_label' : 'line_label_'.$i;
+			$qtyField = $isManualLine ? 'manual_line_qty' : 'line_qty_'.$i;
+			$priceField = $isManualLine ? 'manual_line_price' : 'line_price_'.$i;
+			$vatField = $isManualLine ? 'manual_line_vat' : 'line_vat_'.$i;
+			$priceBaseField = $isManualLine ? 'manual_line_price_base' : 'line_price_base_'.$i;
+			$productField = $isManualLine ? 'manual_line_product_id' : 'lineprod_'.$i;
+			$mode = GETPOST($modeField, 'aZ09');
 			if (!in_array($mode, AUVORECHNUNGSIMPORT_LINE_MODES, true)) {
 				$mode = 'book';
 			}
-			$fkProduct = ($mode === 'book') ? GETPOSTINT('lineprod_'.$i) : 0;
-			$line['label'] = GETPOST('line_label_'.$i, 'restricthtml');
+			$fkProduct = ($mode === 'book') ? GETPOSTINT($productField) : 0;
+			$line['ref_supplier'] = trim(GETPOST($refField, 'alphanohtml'));
+			$line['label'] = GETPOST($labelField, 'restricthtml');
 			// Remember cost/skip (or that it's booked normally again) for next time.
 			if (auvorechnungsimport_learn_line_mode($db, $user, $fkSoc, $line, $mode) < 0) {
 				$invoice->errors[] = $db->lasterror();
@@ -437,17 +641,17 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 			if ($mode === 'skip') {
 				continue;
 			}
-			$line['qty'] = (float) price2num(GETPOST('line_qty_'.$i, 'alpha'));
-			$line['price'] = (float) price2num(GETPOST('line_price_'.$i, 'alpha'), 'MU');
-			$line['vat_rate'] = (float) price2num(GETPOST('line_vat_'.$i, 'alpha'));
-			$line['vat_src_code'] = (($extracted['vat_treatment'] ?? '') === 'DE_KLEINUNTERNEHMER_19') ? 'K19' : (string) ($line['vat_src_code'] ?? '');
-			$submittedPriceBase = GETPOST('line_price_base_'.$i, 'alpha');
+			$line['qty'] = (float) price2num(GETPOST($qtyField, 'alpha'));
+			$line['price'] = (float) price2num(GETPOST($priceField, 'alpha'), 'MU');
+			$line['vat_rate'] = (float) price2num(GETPOST($vatField, 'alpha'));
+			$line['vat_src_code'] = (($extracted['vat_treatment'] ?? '') === 'DE_KLEINUNTERNEHMER_19') ? getDolGlobalString('AUVORECHNUNGSIMPORT_VAT_SOURCE_CODE', 'K19') : (string) ($line['vat_src_code'] ?? '');
+			$submittedPriceBase = GETPOST($priceBaseField, 'alpha');
 			if (in_array($submittedPriceBase, array('HT', 'TTC'), true)) $line['price_base'] = $submittedPriceBase;
 
 			// Variant to be created from this line (only if no product was chosen).
 			// Planned again here from the label as submitted - the user may have
 			// corrected it, e.g. an OCR misread color.
-			if ($mode === 'book' && $fkProduct <= 0 && GETPOSTINT('create_variant_'.$i) && $canCreateProduct) {
+			if (!$isManualLine && $mode === 'book' && $fkProduct <= 0 && GETPOSTINT('create_variant_'.$i) && $canCreateProduct) {
 				$planned = auvorechnungsimport_match_lines($db, $fkSoc, array($line));
 				$planned = $planned[0];
 				if (!empty($planned['fk_product'])) {
@@ -499,26 +703,6 @@ if ($action == 'createinvoice' && !GETPOSTINT('preview_supplier') && $user->hasR
 				$invoice->errors[] = $langs->trans('AuvoRechnungsimportErrBuyprice', $line['label']);
 				$result = -1;
 				break;
-			}
-		}
-		if ($result > 0 && empty($extractedLines)) {
-			$manualLabel = trim((string) GETPOST('manual_line_label', 'restricthtml'));
-			$manualQtyRaw = GETPOST('manual_line_qty', 'alpha');
-			$manualPriceRaw = GETPOST('manual_line_price', 'alpha');
-			$manualVatRaw = GETPOST('manual_line_vat', 'alpha');
-			$manualQty = (float) price2num($manualQtyRaw);
-			$manualPrice = (float) price2num($manualPriceRaw, 'MU');
-			$manualVat = (float) price2num($manualVatRaw);
-			if ($manualLabel === '' || !is_numeric($manualQtyRaw) || !is_numeric($manualPriceRaw) || !is_numeric($manualVatRaw)
-				|| $manualQty <= 0 || $manualPrice <= 0 || $manualVat < 0 || $manualVat > 100) {
-				$result = -1;
-				setEventMessages($langs->trans('AuvoRechnungsimportManualLineRequired'), null, 'errors');
-			} else {
-				$manualResult = $invoice->addline($manualLabel, $manualPrice, $manualVat, 0, 0, $manualQty, 0, 0, '', '', 0, 0, 'HT', 0);
-				if ($manualResult <= 0) {
-					$result = -1;
-					$invoice->errors[] = $db->lasterror();
-				}
 			}
 		}
 		if ($result > 0) {
@@ -642,15 +826,25 @@ if ($action == 'confirm_delete' && GETPOST('confirm') == 'yes' && $user->hasRigh
 		exit;
 	}
 	$filetoremove = auvorechnungsimport_resolve_file($object->filepath);
-	if ($filetoremove !== false) {
-		dol_delete_file($filetoremove, 1);
-		dol_delete_dir(dirname($filetoremove), 1);
+	$db->begin();
+	$logResult = auvorechnungsimport_blockedlog_log_import_deleted($db, $object, $user, $filetoremove);
+	if ($logResult <= 0) {
+		$db->rollback();
+		setEventMessages($langs->trans('AuvoRechnungsimportErrDeleteLog'), null, 'errors');
+		header('Location: '.$_SERVER['PHP_SELF'].'?id='.$object->id);
+		exit;
 	}
 	$result = $object->delete($user);
 	if ($result > 0) {
+		$db->commit();
+		if ($filetoremove !== false) {
+			dol_delete_file($filetoremove, 1);
+			dol_delete_dir(dirname($filetoremove), 1);
+		}
 		header('Location: '.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1));
 		exit;
 	} else {
+		$db->rollback();
 		setEventMessages($langs->trans('AuvoRechnungsimportErrDelete'), $object->errors, 'errors');
 	}
 }
@@ -686,8 +880,9 @@ if ($user->hasRight('auvorechnungsimport', 'imports', 'write') && !in_array((int
 		$morehtmlright .= dolGetButtonAction('', $langs->trans('AuvoRechnungsimportConfirmDuplicate'), 'default', $duplicateUrl, '', 1, array('confirm' => array('content' => $langs->trans('AuvoRechnungsimportConfirmDuplicatePrompt'))));
 	}
 	if ($user->hasRight('auvorechnungsimport', 'imports', 'delete') && !in_array((int) $object->status, array(ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) $morehtmlright .= dolGetButtonAction('', $langs->trans('Delete'), 'delete', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=delete', '', 1);
-$nextId = auvorechnungsimport_next_to_review($db, $object->id);
-if ($nextId && (int) $object->status !== ImportedInvoice::STATUS_SPAM_REVIEW) {
+$isSpamReview = (int) $object->status === ImportedInvoice::STATUS_SPAM_REVIEW;
+$nextId = auvorechnungsimport_next_to_review($db, $object->id, $isSpamReview);
+if ($nextId) {
 	$morehtmlright .= dolGetButtonAction('', $langs->trans('AuvoRechnungsimportNextBtn'), 'default', $_SERVER['PHP_SELF'].'?id='.$nextId, '', 1);
 }
 
@@ -712,6 +907,7 @@ print '<div class="fichehalfright">';
 print '<div class="underbanner clearboth"></div>';
 print '<table class="border centpercent tableforfield">';
 print '<tr><td class="titlefield">'.$langs->trans('AuvoRechnungsimportDetectedVat').'</td><td>'.dol_escape_htmltag($extracted['supplier_vat'] ?? '').'</td></tr>';
+if (!empty($extracted['supplier_tax_id'])) print '<tr><td>'.$langs->trans('AuvoRechnungsimportDetectedTaxId').'</td><td>'.dol_escape_htmltag($extracted['supplier_tax_id']).'</td></tr>';
 print '<tr><td>'.$langs->trans('AuvoRechnungsimportDetectedName').'</td><td>'.dol_escape_htmltag($extracted['supplier_name'] ?? '').'</td></tr>';
 print '<tr><td>'.$langs->trans('AuvoRechnungsimportMatchConfidence').'</td><td>'.dol_escape_htmltag($object->supplier_match_confidence).'</td></tr>';
 print '<tr><td>'.$langs->trans('AuvoRechnungsimportDetectedAmount').'</td><td>'.(isset($extracted['amount_ttc']) && $extracted['amount_ttc'] !== null ? price($extracted['amount_ttc']).' '.dol_escape_htmltag($extracted['currency'] ?? '') : '').'</td></tr>';
@@ -722,6 +918,45 @@ print '</div>';
 
 print dol_get_fiche_end();
 
+print '<script>document.body.classList.add("auvorechnungsimport-menu-hidden");</script>';
+print '<style>
+#auvorechnungsimport-review-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr);gap:16px;align-items:start}
+#auvorechnungsimport-review-preview,#auvorechnungsimport-review-form{min-width:0}
+#auvorechnungsimport-review-preview{position:sticky;top:70px}
+#auvorechnungsimport-review-preview iframe{height:calc(100vh - 100px);min-height:600px}
+#auvorechnungsimport-lines-table{table-layout:fixed}
+#auvorechnungsimport-lines-table td,#auvorechnungsimport-lines-table th{padding:5px!important}
+#auvorechnungsimport-lines-table input:not([type="hidden"]):not([name^="search_"]){width:100%!important;min-width:0!important;max-width:none!important;box-sizing:border-box}
+#auvorechnungsimport-lines-table th:nth-child(1),#auvorechnungsimport-lines-table td:nth-child(1){width:46px}
+#auvorechnungsimport-lines-table td:nth-child(1) select{width:36px;max-width:36px}
+.auvorechnungsimport-mode-picker{position:relative;display:inline-block;width:34px;height:30px;vertical-align:middle}
+.auvorechnungsimport-mode-code{width:34px;height:30px;padding:0;border:1px solid #bbb;border-radius:3px;background:var(--colorbackbody);font-weight:bold;cursor:pointer}
+.auvorechnungsimport-mode-picker select.auvorechnungsimport-mode{position:absolute;inset:0;width:34px!important;height:30px!important;opacity:0;cursor:pointer}
+#auvorechnungsimport-lines-table th:nth-child(2),#auvorechnungsimport-lines-table td:nth-child(2){width:80px}
+#auvorechnungsimport-lines-table th:nth-child(4),#auvorechnungsimport-lines-table td:nth-child(4){width:48px}
+#auvorechnungsimport-lines-table th:nth-child(5),#auvorechnungsimport-lines-table td:nth-child(5){width:105px}
+#auvorechnungsimport-lines-table th:nth-child(6),#auvorechnungsimport-lines-table td:nth-child(6){width:50px}
+#auvorechnungsimport-lines-table th:nth-child(7),#auvorechnungsimport-lines-table td:nth-child(7){width:75px;white-space:nowrap}
+#auvorechnungsimport-lines-table th:nth-child(8),#auvorechnungsimport-lines-table td:nth-child(8){width:48px}
+.auvorechnungsimport-product-picker{position:relative;display:inline-flex;align-items:center;justify-content:center;width:34px;height:30px}
+.auvorechnungsimport-product-search{width:30px;height:28px;padding:0;border:1px solid #bbb;border-radius:3px;background:var(--colorbackbody);cursor:pointer}
+.auvorechnungsimport-product-search:hover{background:var(--colorbackvmenu1)}
+.auvorechnungsimport-product-picker input[id^="search_"]{display:none!important;position:absolute;right:0;top:31px;z-index:1500;width:220px;min-width:220px;box-sizing:border-box;box-shadow:0 2px 6px #888}
+.auvorechnungsimport-product-picker.is-open input[id^="search_"]{display:block!important}
+.auvorechnungsimport-product-picker .ui-autocomplete{z-index:1501!important;max-height:260px;overflow-y:auto;overflow-x:hidden}
+#auvorechnungsimport-menu-toggle{position:fixed;z-index:1200;left:0;top:50%;width:24px;height:34px;padding:0;border:1px solid #bbb;border-radius:0 4px 4px 0;background:var(--colorbackbody);cursor:pointer;box-shadow:1px 1px 4px #888}
+#auvorechnungsimport-menu-toggle.is-open{border-radius:4px 0 0 4px}
+#auvorechnungsimport-menu-toggle.is-pinned{color:#176b45;background:#e7f4ed}
+#auvorechnungsimport-menu-toggle.is-pinned:hover:after{content:"";position:absolute;left:4px;right:4px;top:16px;border-top:2px solid currentColor;transform:rotate(-45deg)}
+body.auvorechnungsimport-menu-hidden .side-nav{display:none!important}
+body.auvorechnungsimport-menu-hidden #id-right{display:block!important;width:100%!important}
+body.auvorechnungsimport-menu-hidden.auvorechnungsimport-menu-peek .side-nav{display:table-cell!important;position:fixed;z-index:1199;left:0;top:50px;bottom:0;width:260px;min-width:260px;max-width:min(360px,80vw);overflow-x:hidden;overflow-y:auto;background:var(--colorbackbody);box-shadow:2px 0 8px #777}
+body.auvorechnungsimport-menu-hidden.auvorechnungsimport-menu-peek #id-left{display:block!important;width:260px!important;min-width:260px!important;max-width:min(360px,80vw)}
+body.auvorechnungsimport-menu-hidden.auvorechnungsimport-menu-peek #id-right{margin-left:260px}
+@media(max-width:1100px){#auvorechnungsimport-review-layout{display:block}#auvorechnungsimport-review-preview{position:static}#auvorechnungsimport-review-preview iframe{height:600px}}
+</style>';
+print '<button type="button" id="auvorechnungsimport-menu-toggle" title="Dolibarr-Menü anzeigen (Klick zum Fixieren)" aria-label="Dolibarr-Menü anzeigen"><span class="fas fa-angle-right" aria-hidden="true"></span></button>';
+print '<div id="auvorechnungsimport-review-layout"><aside id="auvorechnungsimport-review-preview">';
 $srcfile = auvorechnungsimport_resolve_file($object->filepath);
 if ($srcfile !== false) {
 	$fileUrl = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_file.php', 1).'?id='.$object->id;
@@ -749,6 +984,7 @@ if ($srcfile !== false) {
 	}
 }
 
+print '</aside><main id="auvorechnungsimport-review-form">';
 print '<div class="div-table-responsive-no-min">';
 if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_fourn > 0) {
 	print '<div class="info">'.$langs->trans('AuvoRechnungsimportAlreadyImported').' ';
@@ -831,11 +1067,11 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	}
 	print '<div class="warning">'.$langs->trans(getDolGlobalInt('AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE') ? 'AuvoRechnungsimportValidationWarningLogged' : 'AuvoRechnungsimportValidationWarning').'</div>';
 	if ($selfSupplierBlocked) {
-		print '<div class="error">'.img_stop().' '.$langs->trans('AuvoRechnungsimportOwnCompanySupplierWarning').'</div>';
+		print '<div class="error">'.img_error().' '.$langs->trans('AuvoRechnungsimportOwnCompanySupplierWarning').'</div>';
 	} elseif ($detectedOwnCompany) {
 		print '<div class="warning">'.img_warning().' '.$langs->trans('AuvoRechnungsimportOwnCompanySupplierOverrideWarning').'</div>';
 	}
-	print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'">';
+	print '<form id="auvorechnungsimport-review-form" method="POST" action="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'">';
 	print '<input type="hidden" name="token" value="'.newToken().'">';
 	print '<input type="hidden" name="action" value="createinvoice">';
 	if ($nonSupplierMatchId) {
@@ -856,7 +1092,9 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	print $form->select_company($previewSupplierId, 'fk_soc', '(fournisseur:=:1)', 1, 0, 0, array(), 0, 'minwidth300');
 	print ' <button type="submit" name="preview_supplier" value="1" class="button">'.$langs->trans('AuvoRechnungsimportPreviewSupplierUpdates').'</button></div>';
 	print '</td></tr>';
-	print '<tr><td>'.$langs->trans('RefSupplier').'</td><td><input type="text" name="ref_supplier" class="minwidth200" value="'.dol_escape_htmltag($extracted['invoice_ref'] ?? '').'">';
+	$requireInvoiceRef = getDolGlobalInt('AUVORECHNUNGSIMPORT_REQUIRE_INVOICE_REF');
+	print '<tr><td'.($requireInvoiceRef ? ' class="fieldrequired"' : '').'>'.$langs->trans('RefSupplier').'</td><td><input type="text" name="ref_supplier" class="minwidth200" value="'.dol_escape_htmltag($extracted['invoice_ref'] ?? '').'">';
+	if ($requireInvoiceRef) print ' <span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportInvoiceRefRequiredHint').'</span>';
 	$existingInvoice = auvorechnungsimport_find_existing_invoice($db, $previewSupplierId, (string) ($extracted['invoice_ref'] ?? ''));
 	if ($existingInvoice) {
 		print ' '.img_warning().' '.$langs->trans('AuvoRechnungsimportWarnDuplicateRef', $existingInvoice->getNomUrl(1));
@@ -866,16 +1104,23 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	print '</table>';
 	$autoCreatePreview = ($previewSupplierId <= 0 && $supplierMode === 'new' && auvorechnungsimport_can_create_supplier_from_fields($user, $supplierPreviewFields, true));
 	$hasExtractedSupplierData = !empty($extracted['supplier_name']) || !empty($extracted['supplier_vat'])
-		|| !empty($extracted['supplier_email']) || !empty($extracted['supplier_phone']) || !empty($extracted['supplier_iban'])
+		|| !empty($extracted['supplier_email']) || !empty($extracted['supplier_phone']) || !empty($extracted['supplier_iban']) || !empty($extracted['supplier_account_holder'])
+		|| !empty($extracted['supplier_bank_details']['bank_name'])
 		|| !empty($extracted['supplier_country']) || !empty(array_filter((array) ($extracted['supplier_address'] ?? array())))
 		|| (!empty($extracted['supplier_contact_firstname']) && !empty($extracted['supplier_contact_lastname']));
 	if (($previewSupplierId > 0 || $autoCreatePreview || $hasExtractedSupplierData) && $hasExtractedSupplierData) {
 		$matchedSupplier = new Societe($db);
 		if ($previewSupplierId > 0) $matchedSupplier->fetch($previewSupplierId);
 		$currentBankValue = '';
+		$currentBankOwner = '';
+		$currentBankName = '';
 		if ($previewSupplierId > 0) {
 			$currentBank = new CompanyBankAccount($db);
-			if ($currentBank->fetch(0, '', $previewSupplierId, -1) > 0) $currentBankValue = (string) $currentBank->iban;
+			if ($currentBank->fetch(0, '', $previewSupplierId, -1) > 0) {
+				$currentBankValue = (string) $currentBank->iban;
+				$currentBankOwner = (string) $currentBank->owner_name;
+				$currentBankName = (string) $currentBank->bank;
+			}
 		}
 		print '<br>'.load_fiche_titre($langs->trans('AuvoRechnungsimportSupplierDataTitle'), '', '');
 		print '<div class="info">'.$langs->trans('AuvoRechnungsimportSupplierPreviewHelp').'</div>';
@@ -897,6 +1142,7 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 		$supplierRows = array(
 			'AuvoRechnungsimportSupplierName' => array('Name', (string) $matchedSupplier->name, (string) ($supplierPreviewFields['supplier_name'] ?? ''), 'name'),
 			'VAT' => array('VAT', (string) $matchedSupplier->tva_intra, (string) ($extracted['supplier_vat'] ?? ''), 'vat'),
+			'AuvoRechnungsimportSupplierTaxId' => array('AuvoRechnungsimportSupplierTaxId', (string) $matchedSupplier->idprof1, (string) ($supplierPreviewFields['supplier_tax_id'] ?? ''), 'tax_id'),
 			'Address' => array('Address', (string) $matchedSupplier->address, trim(implode("\n", array_filter(array((string) ($address['line1'] ?? ''), (string) ($address['line2'] ?? ''), (string) ($address['line3'] ?? '')), 'strlen'))), 'address'),
 			'Zip' => array('Zip', (string) $matchedSupplier->zip, (string) ($address['postcode'] ?? ''), 'zip'),
 			'Town' => array('Town', (string) $matchedSupplier->town, (string) ($address['city'] ?? ''), 'town'),
@@ -904,6 +1150,8 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 			'Phone' => array('Phone', (string) $matchedSupplier->phone, (string) ($extracted['supplier_phone'] ?? ''), 'phone'),
 			'Country' => array('Country', (string) ($matchedSupplier->country_code ?? ''), (string) ($extracted['supplier_country'] ?? ''), 'country'),
 			'IBAN' => array('IBAN', $currentBankValue, (string) ($extracted['supplier_iban'] ?? ''), 'iban'),
+			'AuvoRechnungsimportAccountHolder' => array('AuvoRechnungsimportAccountHolder', $currentBankOwner, (string) ($extracted['supplier_account_holder'] ?? ''), 'bankowner'),
+			'AuvoRechnungsimportBankName' => array('AuvoRechnungsimportBankName', $currentBankName, (string) ($extracted['supplier_bank_details']['bank_name'] ?? ''), 'bankname'),
 			'AuvoRechnungsimportSupplierContact' => array('AuvoRechnungsimportSupplierContact', $currentContactText, (!empty($extracted['supplier_contact_firstname']) && !empty($extracted['supplier_contact_lastname'])) ? trim($extracted['supplier_contact_firstname'].' '.$extracted['supplier_contact_lastname'].' · '.(string) ($extracted['supplier_email'] ?? '')) : '', 'contact'),
 		);
 		foreach ($supplierRows as $row) {
@@ -929,7 +1177,8 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 			$postName = 'update_supplier_'.$field;
 			$choice = GETPOST($postName, 'alpha');
 			if (!in_array($choice, array('update', 'keep'), true)) {
-				$choice = $conflict ? '' : ((trim($currentValue) === '' && $user->hasRight('societe', 'creer')) ? 'update' : 'keep');
+				$savedChoice = (string) ($extracted['review_supplier_choices'][$field] ?? '');
+				$choice = in_array($savedChoice, array('update', 'keep'), true) ? $savedChoice : ($conflict ? '' : ((trim($currentValue) === '' && $user->hasRight('societe', 'creer')) ? 'update' : 'keep'));
 			}
 			$required = ($conflict || ($supplierMode === 'new' && $field === 'name')) && $user->hasRight('societe', 'creer') ? ' required="required"' : '';
 			$optionHtml = '<option value=""'.($choice === '' ? ' selected="selected"' : '').'>'.$langs->trans('AuvoRechnungsimportChooseAction').'</option>';
@@ -949,7 +1198,24 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	}
 
 	$lines = isset($extracted['lines']) && is_array($extracted['lines']) ? $extracted['lines'] : array();
-	if (!empty($lines)) {
+	$manualEntry = empty($lines);
+	$sourceLabels = array();
+	if ($manualEntry) {
+		$manual = is_array($extracted['manual_line'] ?? null) ? $extracted['manual_line'] : array();
+		$manualMode = GETPOSTISSET('manual_line_mode') ? GETPOST('manual_line_mode', 'aZ09') : ($manual['mode'] ?? 'book');
+		if (!in_array($manualMode, AUVORECHNUNGSIMPORT_LINE_MODES, true)) $manualMode = 'book';
+		$manualQty = GETPOSTISSET('manual_line_qty') ? GETPOST('manual_line_qty', 'alpha') : ($manual['qty'] ?? '1');
+		$manualPrice = GETPOSTISSET('manual_line_price') ? GETPOST('manual_line_price', 'alpha') : ($manual['price'] ?? '');
+		$manualVat = GETPOSTISSET('manual_line_vat') ? GETPOST('manual_line_vat', 'alpha') : ($manual['vat'] ?? '');
+		$lines = array(array(
+			'source' => 'manual', '_manual' => true, 'mode' => $manualMode,
+			'ref_supplier' => GETPOSTISSET('manual_line_ref_supplier') ? GETPOST('manual_line_ref_supplier', 'alphanohtml') : ($manual['ref_supplier'] ?? ''),
+			'label' => GETPOSTISSET('manual_line_label') ? GETPOST('manual_line_label', 'restricthtml') : ($manual['label'] ?? $langs->trans('AuvoRechnungsimportManualLineDefault')),
+			'qty' => $manualQty, 'price' => ($manualPrice === '' ? null : (float) price2num($manualPrice, 'MU')),
+			'vat_rate' => ($manualVat === '' ? null : (float) price2num($manualVat)), 'price_base' => 'HT',
+			'fk_product' => GETPOSTISSET('manual_line_product_id') ? GETPOSTINT('manual_line_product_id') : (int) ($manual['fk_product'] ?? 0),
+		));
+	} else {
 		// Matched at display time against the currently assigned supplier, so what
 		// was learned since the upload (or a supplier corrected via re-run) applies.
 		$lines = auvorechnungsimport_match_lines($db, $previewSupplierId, $lines);
@@ -962,6 +1228,7 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 			'suggest_ref' => array('AuvoRechnungsimportMatchSuggest', 'status1'),
 			'suggest_label' => array('AuvoRechnungsimportMatchSuggest', 'status1'),
 		);
+	}
 
 		// All lines of one invoice share the price base: text detection decides
 		// net vs. gross per invoice, Factur-X is always net.
@@ -969,22 +1236,25 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 		print '<br>';
 		print load_fiche_titre($langs->trans('AuvoRechnungsimportLinesTitle'), '', '');
 		if (($extracted['vat_treatment'] ?? '') === 'DE_KLEINUNTERNEHMER_19') {
-			print '<div class="info">'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportVatK19Notice')).'</div>';
+			print '<div class="info">'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportVatK19Notice', getDolGlobalString('AUVORECHNUNGSIMPORT_VAT_SOURCE_CODE', 'K19'))).'</div>';
 		}
 		if (($lines[0]['source'] ?? '') === 'text') {
 			$hintKey = (($extracted['lines_check'] ?? '') === 'ok') ? 'AuvoRechnungsimportLinesFromTextOk' : 'AuvoRechnungsimportLinesFromTextCheck';
-			print '<div class="'.($hintKey === 'AuvoRechnungsimportLinesFromTextOk' ? 'info' : 'warning').'">'.$langs->trans($hintKey).($gross ? ' '.$langs->trans('AuvoRechnungsimportLinesGross') : '').'</div>';
+			$lineNotice = $gross ? $langs->trans('AuvoRechnungsimportLinesGross') : $langs->trans($hintKey);
+			$lineNoticeClass = ($gross || $hintKey === 'AuvoRechnungsimportLinesFromTextOk') ? 'info' : 'warning';
+			print '<div id="auvorechnungsimport-lines-feedback" class="'.$lineNoticeClass.'" style="white-space: pre-line">'.$lineNotice.'</div>';
 		}
+		if ($manualEntry) print '<div id="auvorechnungsimport-lines-feedback" class="warning">'.$langs->trans('AuvoRechnungsimportManualLineNeeded').'</div>';
 		print '<div class="div-table-responsive">';
-		print '<table class="noborder centpercent">';
+		print '<table id="auvorechnungsimport-lines-table" class="noborder centpercent">';
 		print '<tr class="liste_titre">';
-		print '<td>'.$langs->trans('AuvoRechnungsimportLineMode').'</td>';
-		print '<td>'.$langs->trans('RefSupplier').'</td>';
+		print '<td class="center" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportLineMode')).'" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportLineMode')).'">🔧</td>';
+		print '<td class="center" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportSupplierItemRefHelp')).'" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportSupplierItemRefHelp')).'">🆔</td>';
 		print '<td>'.$langs->trans('Description').'</td>';
 		print '<td class="right">'.$langs->trans('Qty').'</td>';
 		print '<td class="right" id="auvorechnungsimport-price-header" data-ht="'.dol_escape_htmltag($langs->trans('PriceUHT')).'" data-ttc="'.dol_escape_htmltag($langs->trans('PriceUTTC')).'" data-mixed="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportPriceMixed')).'">'.$langs->trans($gross ? 'PriceUTTC' : 'PriceUHT').'</td>';
 		print '<td class="right">'.$langs->trans('VAT').' %</td>';
-		print '<td class="right" id="auvorechnungsimport-total-header" data-ht="'.dol_escape_htmltag($langs->trans('TotalHT')).'" data-ttc="'.dol_escape_htmltag($langs->trans('TotalTTC')).'" data-mixed="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportTotalMixed')).'">'.$langs->trans($gross ? 'TotalTTC' : 'TotalHT').'</td>';
+		print '<td class="right" id="auvorechnungsimport-total-header" data-ht="'.dol_escape_htmltag($langs->trans('TotalHT')).'" data-ttc="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportTotalGrossShort')).'" data-mixed="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportTotalMixed')).'">'.$langs->trans($gross ? 'AuvoRechnungsimportTotalGrossShort' : 'TotalHT').'</td>';
 		print '<td>'.$langs->trans('Product').'</td>';
 		print '</tr>';
 
@@ -998,33 +1268,39 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 		$sumReviewNet = 0;
 		$sumReviewGross = 0;
 		foreach ($lines as $i => $line) {
+			$isManualLine = !empty($line['_manual']);
+			$modeField = $isManualLine ? 'manual_line_mode' : 'line_mode_'.$i;
+			$refField = $isManualLine ? 'manual_line_ref_supplier' : 'line_ref_supplier_'.$i;
+			$labelField = $isManualLine ? 'manual_line_label' : 'line_label_'.$i;
+			$qtyField = $isManualLine ? 'manual_line_qty' : 'line_qty_'.$i;
+			$priceField = $isManualLine ? 'manual_line_price' : 'line_price_'.$i;
+			$vatField = $isManualLine ? 'manual_line_vat' : 'line_vat_'.$i;
+			$priceBaseField = $isManualLine ? 'manual_line_price_base' : 'line_price_base_'.$i;
 			$mode = $line['mode'] ?? 'book';
 			$priceBase = (($line['price_base'] ?? 'HT') === 'TTC') ? 'TTC' : 'HT';
-			print '<tr class="oddeven auvorechnungsimport-line'.($mode === 'skip' ? ' opacitymedium' : '').'" data-price-base="'.$priceBase.'">';
+			$productSelectId = $isManualLine ? 'manual_line_product_id' : 'lineprod_'.$i;
+			print '<tr class="oddeven auvorechnungsimport-line'.($isManualLine ? ' auvorechnungsimport-manual-line' : '').($mode === 'skip' ? ' opacitymedium' : '').'" data-price-base="'.$priceBase.'" data-product-field="'.$productSelectId.'">';
+			$modeCodes = array('book' => $langs->trans('AuvoRechnungsimportModeCodeBook'), 'cost' => $langs->trans('AuvoRechnungsimportModeCodeCost'), 'skip' => $langs->trans('AuvoRechnungsimportModeCodeSkip'));
 			print '<td class="nowraponall">';
-			print '<select name="line_mode_'.$i.'" class="flat auvorechnungsimport-mode">';
+			print '<span class="auvorechnungsimport-mode-picker"><button type="button" class="auvorechnungsimport-mode-code" aria-hidden="true">'.dol_escape_htmltag($modeCodes[$mode] ?? '').'</button>';
+			print '<select name="'.$modeField.'" class="flat auvorechnungsimport-mode" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportLineMode')).'" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportMode'.ucfirst($mode))).'">';
 			foreach (AUVORECHNUNGSIMPORT_LINE_MODES as $m) {
 				print '<option value="'.$m.'"'.($m === $mode ? ' selected' : '').'>'.$langs->trans('AuvoRechnungsimportMode'.ucfirst($m)).'</option>';
 			}
-			print '</select>';
+			print '</select></span>';
 			if (!empty($line['mode_source'])) {
 				print '<br><span class="badge status4 small">'.$langs->trans($line['mode_source'] === 'learned' ? 'AuvoRechnungsimportMatchLearned' : 'AuvoRechnungsimportModeKeyword').'</span>';
 			}
 			print '</td>';
-			print '<td class="nowraponall">'.dol_escape_htmltag($line['ref_supplier'] ?? '');
+			print '<td class="nowraponall"><input type="text" name="'.$refField.'" value="'.dol_escape_htmltag($line['ref_supplier'] ?? '').'" title="'.dol_escape_htmltag($langs->trans('RefSupplier')).'">';
 			if (!empty($line['gtin'])) {
 				print '<br><span class="opacitymedium small">EAN '.dol_escape_htmltag($line['gtin']).'</span>';
 			}
 			print '</td>';
-			print '<td><input type="text" name="line_label_'.$i.'" class="minwidth200 maxwidth300 widthcentpercentminusx" value="'.dol_escape_htmltag($line['label'] ?? '').'"></td>';
-			print '<td class="right"><input type="text" name="line_qty_'.$i.'" class="width50 right" value="'.dol_escape_htmltag(price2num($line['qty'] ?? 1)).'"></td>';
-			print '<td class="right nowraponall"><span style="display:inline-flex;align-items:center;white-space:nowrap;gap:2px"><input type="text" name="line_price_'.$i.'" class="width75 right" value="'.dol_escape_htmltag($line['price'] !== null ? price($line['price'], 0, '', 0, -1, -1) : '').'">';
-			if ($priceBase === 'TTC') {
-				print ' <input type="hidden" name="line_price_base_'.$i.'" value="TTC">';
-				print '<button type="button" class="flat auvorechnungsimport-net-preview-toggle" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportShowNetUnitPrice')).'" style="font-size:14px;line-height:18px;padding:0 2px;border:0;background:transparent;cursor:pointer" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportShowNetUnitPrice')).'">&#128425;</button>';
-			} else {
-				print '<input type="hidden" name="line_price_base_'.$i.'" value="HT">';
-			}
+			print '<td><input type="text" name="'.$labelField.'"'.($isManualLine ? ' required' : '').' value="'.dol_escape_htmltag($line['label'] ?? '').'"></td>';
+			print '<td class="right"><input type="text" name="'.$qtyField.'" class="right auvorechnungsimport-line-qty"'.($isManualLine ? ' required' : '').' value="'.dol_escape_htmltag(price2num($line['qty'] ?? 1)).'"></td>';
+			print '<td class="right nowraponall"><span style="display:inline-flex;align-items:center;white-space:nowrap;gap:2px"><input type="text" name="'.$priceField.'" class="right auvorechnungsimport-line-price"'.($isManualLine ? ' required' : '').' value="'.dol_escape_htmltag($line['price'] !== null ? price($line['price'], 0, '', 0, -1, -1) : '').'">';
+			print '<input type="hidden" name="'.$priceBaseField.'" value="'.$priceBase.'">';
 			print '</span></td>';
 			$vatRate = $line['vat_rate'];
 			$inputQty = (float) ($line['qty'] ?? 0);
@@ -1039,17 +1315,22 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 				$sumReviewNet += $lineNet;
 				$sumReviewGross += $lineGross;
 			}
-			print '<td class="right"><input type="text" name="line_vat_'.$i.'" class="width40 right" value="'.dol_escape_htmltag($vatRate !== null ? price2num($vatRate) : '').'" required></td>';
+			print '<td class="right"><input type="text" name="'.$vatField.'" class="right auvorechnungsimport-line-vat" value="'.dol_escape_htmltag($vatRate !== null ? price2num($vatRate) : '').'" required></td>';
 			print '<td class="right nowraponall"><span class="auvorechnungsimport-line-total">'.price($lineBase).'</span></td>';
 			print '<td class="nowraponall">';
-			print $form->select_produits($line['fk_product'], 'lineprod_'.$i, '', 0, 0, -1, 2, '', 1, array(), 0, '1', 0, 'minwidth250', 1, '', null, 1, 1);
+			$selectedProductLabel = '';
+			if (!empty($line['fk_product'])) {
+				$selectedProduct = new Product($db);
+				if ($selectedProduct->fetch((int) $line['fk_product']) > 0) $selectedProductLabel = trim($selectedProduct->ref.' '.$selectedProduct->label);
+			}
+			print '<span class="auvorechnungsimport-product-picker"><button type="button" class="auvorechnungsimport-product-search" data-select="'.$productSelectId.'" title="'.dol_escape_htmltag($selectedProductLabel !== '' ? $selectedProductLabel : $langs->trans('Search')).'" aria-label="'.dol_escape_htmltag($langs->trans('Search')).'"><span class="fas fa-search" aria-hidden="true"></span></button>';
+			print $form->select_produits($line['fk_product'], $productSelectId, '', 0, 0, -1, 2, '', 1, array(), 0, '1', 0, 'width30', 1, '', null, 1, 1).'</span>';
 			if (!empty($line['match_source']) && isset($sourceLabels[$line['match_source']])) {
 				list($labelKey, $badge) = $sourceLabels[$line['match_source']];
 				print ' <span class="badge '.$badge.'">'.$langs->trans($labelKey).'</span>';
 			}
 			if (!empty($line['fk_product'])) {
-				$p = new Product($db);
-				if ($p->fetch($line['fk_product']) > 0 && empty($p->status_buy)) {
+				if (isset($selectedProduct) && $selectedProduct->id > 0 && empty($selectedProduct->status_buy)) {
 					print '<br><span class="warning small">'.img_warning().' '.$langs->trans('AuvoRechnungsimportProductNotBuyable').'</span>';
 				}
 			}
@@ -1082,15 +1363,15 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 
 		$conf->global->PRODUIT_USE_SEARCH_TO_SELECT = $savedSearchToSelect;
 
-		print '<tr class="liste_total">';
+		print '<tr class="liste_total"'.($gross ? ' style="display:none"' : '').'>';
 		print '<td colspan="6" class="right">'.$langs->trans('AuvoRechnungsimportReviewNetSum').'</td>';
 		print '<td class="right nowraponall" id="auvorechnungsimport-sum-net">'.price($sumReviewNet).'</td>';
-		print '<td class="error small" id="auvorechnungsimport-check-net"></td>';
+		print '<td id="auvorechnungsimport-check-net"></td>';
 		print '</tr>';
 		print '<tr class="liste_total">';
 		print '<td colspan="6" class="right">'.$langs->trans('AuvoRechnungsimportReviewGrossSum').'</td>';
 		print '<td class="right nowraponall" id="auvorechnungsimport-sum-gross">'.price($sumReviewGross).'</td>';
-		print '<td class="error small" id="auvorechnungsimport-check-gross"></td>';
+		print '<td id="auvorechnungsimport-check-gross"></td>';
 		print '</tr>';
 		// What will actually be booked: without skipped lines (updated live)
 		print '<tr class="liste_total">';
@@ -1103,13 +1384,18 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 		$fmt = array('dec' => $langs->transnoentitiesnoconv('SeparatorDecimal'), 'th' => $langs->transnoentitiesnoconv('SeparatorThousand'));
 		print '<script>
 (function () {
-	var selfSupplierBlocked = '.($selfSupplierBlocked ? 'true' : 'false').';
 	var dec = '.json_encode($fmt['dec'] === 'SeparatorDecimal' ? ',' : $fmt['dec']).', th = '.json_encode(in_array($fmt['th'], array('SeparatorThousand', 'None'), true) ? '.' : $fmt['th']).', group = '.json_encode(in_array($fmt['th'], array('SeparatorThousand', 'None'), true) ? '' : $fmt['th']).';
+	var requireInvoiceRef = '.(getDolGlobalInt('AUVORECHNUNGSIMPORT_REQUIRE_INVOICE_REF') ? 'true' : 'false').';
 	var warn = '.json_encode($langs->transnoentitiesnoconv('AuvoRechnungsimportSkipWarning', '__AMOUNT__')).';
 	var invoiceNet = '.json_encode(isset($extracted['amount_ht']) ? (float) $extracted['amount_ht'] : null).';
 	var invoiceGross = '.json_encode(isset($extracted['amount_ttc']) ? (float) $extracted['amount_ttc'] : null).';
 	var mismatchNet = '.json_encode($langs->transnoentitiesnoconv('AuvoRechnungsimportErrReviewTotalMismatchHT', '__SUM__', '__AMOUNT__')).';
 	var mismatchGross = '.json_encode($langs->transnoentitiesnoconv('AuvoRechnungsimportErrReviewTotalMismatchTTC', '__SUM__', '__AMOUNT__')).';
+	var productRequiredMessage = '.json_encode($langs->transnoentitiesnoconv('AuvoRechnungsimportErrProductRequiredForTakeover', '__LINES__')).';
+	var manualEntry = '.($manualEntry ? 'true' : 'false').';
+	var feedback = document.getElementById("auvorechnungsimport-lines-feedback");
+	var initialFeedbackHtml = feedback ? feedback.innerHTML : "";
+	var initialFeedbackClass = feedback ? feedback.className : "info";
 	function fmt(n) {
 		var p = Math.abs(n).toFixed(2).split(".");
 		return (n < 0 ? "-" : "") + p[0].replace(/\B(?=(\d{3})+(?!\d))/g, th) + dec + p[1];
@@ -1127,13 +1413,20 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	}
 	function roundMoney(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 	function update() {
-		var net = 0, gross = 0, booked = 0, skippedGross = 0, skippedNet = 0, count = 0, missingVat = false;
+		var net = 0, gross = 0, booked = 0, skippedGross = 0, skippedNet = 0, count = 0, missingVat = false, manualIncomplete = false, missingProductLines = [];
 		document.querySelectorAll("tr.auvorechnungsimport-line").forEach(function (tr) {
 			var mode = tr.querySelector("select.auvorechnungsimport-mode").value;
-			var qty = num(tr.querySelector("input[name^=\"line_qty_\"]").value);
-			var unit = num(tr.querySelector("input[name^=\"line_price_\"]").value);
-			var vatInput = tr.querySelector("input[name^=\"line_vat_\"]");
+			var productField = document.getElementById(tr.dataset.productField);
+			var variantCheckbox = tr.querySelector("input[name^=\"create_variant_\"]");
+			if (mode === "book" && (!productField || !productField.value) && !(variantCheckbox && variantCheckbox.checked)) missingProductLines.push(missingProductLines.length + 1);
+			var qty = num(tr.querySelector(".auvorechnungsimport-line-qty").value);
+			var unit = num(tr.querySelector(".auvorechnungsimport-line-price").value);
+			var vatInput = tr.querySelector(".auvorechnungsimport-line-vat");
 			if (vatInput.value.trim() === "") missingVat = true;
+			if (tr.classList.contains("auvorechnungsimport-manual-line")) {
+				var labelInput = tr.querySelector("input[name=manual_line_label]");
+				if (!labelInput.value.trim() || qty <= 0 || tr.querySelector(".auvorechnungsimport-line-price").value.trim() === "" || vatInput.value.trim() === "") manualIncomplete = true;
+			}
 			var vat = num(vatInput.value);
 			var base = qty * unit, lineNet, lineGross;
 			if (tr.dataset.priceBase === "TTC") {
@@ -1157,36 +1450,59 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 		var tolerance = Math.max(0.02, 0.01 * count);
 		var netMismatch = targetNet !== null && count && Math.abs(net - targetNet) > tolerance;
 		var grossMismatch = targetGross !== null && count && Math.abs(gross - targetGross) > tolerance;
-		document.getElementById("auvorechnungsimport-check-net").textContent = netMismatch ? mismatchNet.replace("__SUM__", fmt(net)).replace("__AMOUNT__", fmt(targetNet)) : "";
-		document.getElementById("auvorechnungsimport-check-gross").textContent = grossMismatch ? mismatchGross.replace("__SUM__", fmt(gross)).replace("__AMOUNT__", fmt(targetGross)) : "";
+		document.getElementById("auvorechnungsimport-check-net").textContent = "";
+		document.getElementById("auvorechnungsimport-check-gross").textContent = "";
+		if (feedback) {
+			var messages = [];
+			if (missingProductLines.length) messages.push(productRequiredMessage.replace("__LINES__", missingProductLines.join(", ")));
+			if (netMismatch) messages.push(mismatchNet.replace("__SUM__", fmt(net)).replace("__AMOUNT__", fmt(targetNet)));
+			if (grossMismatch) messages.push(mismatchGross.replace("__SUM__", fmt(gross)).replace("__AMOUNT__", fmt(targetGross)));
+			if (messages.length) feedback.textContent = messages.join("\\n");
+			else if (manualEntry && !manualIncomplete) { feedback.textContent = ""; feedback.className = ""; }
+			else { feedback.innerHTML = initialFeedbackHtml; feedback.className = initialFeedbackClass; }
+			feedback.style.whiteSpace = "pre-line";
+		}
 		document.getElementById("auvorechnungsimport-tobook").textContent = fmt(booked);
 		document.getElementById("auvorechnungsimport-skipwarn").textContent = Math.abs(skippedGross) > 0.005 ? warn.replace("__AMOUNT__", fmt(skippedGross)) : "";
-		document.getElementById("auvorechnungsimport-create-invoice").disabled = selfSupplierBlocked || !count || missingVat || netMismatch || grossMismatch;
+		var refInput = document.querySelector("input[name=ref_supplier]");
+		var createButton = document.getElementById("auvorechnungsimport-create-invoice");
+		if (createButton) createButton.disabled = !count || missingVat || manualIncomplete || missingProductLines.length > 0 || netMismatch || grossMismatch || (requireInvoiceRef && (!refInput || !refInput.value.trim()));
 	}
-	document.querySelectorAll(".auvorechnungsimport-net-preview-toggle").forEach(function (button) {
-		button.addEventListener("click", function () {
-			var row = button.closest("tr.auvorechnungsimport-line");
-			var priceInput = row.querySelector("input[name^=\"line_price_\"]");
-			var vatInput = row.querySelector("input[name^=\"line_vat_\"]");
-			var vat = num(vatInput.value);
-			if (vatInput.value.trim() === "" || vat < 0 || vat > 100) { vatInput.focus(); return; }
-			if (button.dataset.grossValue === undefined) button.dataset.grossValue = priceInput.value;
-			var grossPrice = num(button.dataset.grossValue);
-			priceInput.value = fmt(grossPrice / (1 + vat / 100));
-			row.dataset.priceBase = "HT";
-			row.querySelector("input[name^=\"line_price_base_\"]").value = "HT";
-			var bases = Array.from(document.querySelectorAll("tr.auvorechnungsimport-line")).map(function (tr) { return tr.dataset.priceBase; });
-			var mixed = bases.some(function (base) { return base !== bases[0]; });
-			var priceHeader = document.getElementById("auvorechnungsimport-price-header");
-			var totalHeader = document.getElementById("auvorechnungsimport-total-header");
-			priceHeader.textContent = mixed ? priceHeader.dataset.mixed : priceHeader.dataset[row.dataset.priceBase.toLowerCase()];
-			totalHeader.textContent = mixed ? totalHeader.dataset.mixed : totalHeader.dataset[row.dataset.priceBase.toLowerCase()];
+	document.querySelectorAll("select.auvorechnungsimport-mode").forEach(function (s) {
+		s.addEventListener("change", function () {
+			var code = s.parentElement.querySelector(".auvorechnungsimport-mode-code");
+			if (code) {
+				var codes = {book: '.json_encode($langs->transnoentitiesnoconv('AuvoRechnungsimportModeCodeBook')).', cost: '.json_encode($langs->transnoentitiesnoconv('AuvoRechnungsimportModeCodeCost')).', skip: '.json_encode($langs->transnoentitiesnoconv('AuvoRechnungsimportModeCodeSkip')).'};
+				code.textContent = codes[s.value] || "?";
+				s.title = s.options[s.selectedIndex].text;
+			}
 			update();
 		});
 	});
-	document.querySelectorAll("select.auvorechnungsimport-mode").forEach(function (s) { s.addEventListener("change", update); });
-	document.querySelectorAll("input[name^=\"line_qty_\"], input[name^=\"line_price_\"], input[name^=\"line_vat_\"]").forEach(function (input) { input.addEventListener("input", update); });
-	update();
+	document.querySelectorAll(".auvorechnungsimport-product-search").forEach(function (button) {
+		var select = document.getElementById(button.dataset.select);
+		var search = document.getElementById("search_" + button.dataset.select);
+		var picker = button.closest(".auvorechnungsimport-product-picker");
+		if (!select || !search || !picker) return;
+		button.addEventListener("click", function () {
+			picker.classList.add("is-open");
+			search.focus();
+			search.select();
+		});
+		select.addEventListener("change", function () {
+			if (select.value) {
+				button.title = search.value || '.json_encode($langs->transnoentitiesnoconv('Search')).';
+				setTimeout(function () { picker.classList.remove("is-open"); }, 100);
+			}
+			update();
+		});
+		search.addEventListener("keyup", function () { update(); });
+		search.addEventListener("blur", function () { setTimeout(function () { if (!picker.matches(":hover")) picker.classList.remove("is-open"); }, 250); });
+	});
+	document.querySelectorAll(".auvorechnungsimport-line-qty, .auvorechnungsimport-line-price, .auvorechnungsimport-line-vat").forEach(function (input) { input.addEventListener("input", update); });
+	var refInput = document.querySelector("input[name=ref_supplier]");
+	if (refInput) refInput.addEventListener("input", update);
+	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", update); else update();
 })();
 </script>';
 
@@ -1215,57 +1531,20 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 			}
 			print '</div>';
 		}
-	}
 
 	print '<div class="center marginbottomonly">';
+	print '<button type="submit" name="save_review" value="1" class="button" formnovalidate="formnovalidate">'.$langs->trans('AuvoRechnungsimportSaveReviewBtn').'</button> ';
 	print '<input type="submit" id="auvorechnungsimport-create-invoice" class="button" value="'.$langs->trans('AuvoRechnungsimportCreateInvoiceBtn').'">';
 	print '</div>';
-	if (!empty($lines)) {
-		print '<div class="opacitymedium">'.$langs->trans('AuvoRechnungsimportLinesHint').'</div>';
-	} else {
-		print '<div class="warning">'.$langs->trans('AuvoRechnungsimportManualLineNeeded').'</div>';
-		print '<table class="border centpercent marginbottomonly"><tr class="liste_titre"><td>'.$langs->trans('Description').'</td><td>'.$langs->trans('Qty').'</td><td>'.$langs->trans('PriceUHT').'</td><td>'.$langs->trans('VAT').' %</td></tr>';
-		print '<tr><td><input type="text" name="manual_line_label" class="minwidth300" required value="'.dol_escape_htmltag(GETPOST('manual_line_label', 'restricthtml') ?: $langs->trans('AuvoRechnungsimportManualLineDefault')).'"></td>';
-		print '<td><input type="number" name="manual_line_qty" min="0.001" step="0.001" required value="'.dol_escape_htmltag(GETPOST('manual_line_qty', 'alpha') ?: '1').'"></td>';
-		print '<td><input type="number" name="manual_line_price" min="0" step="0.01" required value="'.dol_escape_htmltag(GETPOST('manual_line_price', 'alpha')).'"></td>';
-		print '<td><input type="number" name="manual_line_vat" min="0" max="100" step="0.01" required value="'.dol_escape_htmltag(GETPOST('manual_line_vat', 'alpha')).'"></td></tr>';
-		print '<tr class="liste_total"><td colspan="2" class="right">'.$langs->trans('AuvoRechnungsimportReviewNetSum').'</td><td id="auvorechnungsimport-manual-net"></td><td class="error small" id="auvorechnungsimport-manual-check-net"></td></tr>';
-		print '<tr class="liste_total"><td colspan="2" class="right">'.$langs->trans('AuvoRechnungsimportReviewGrossSum').'</td><td id="auvorechnungsimport-manual-gross"></td><td class="error small" id="auvorechnungsimport-manual-check-gross"></td></tr>';
-		print '</table>';
-		$fmt = array('dec' => $langs->transnoentitiesnoconv('SeparatorDecimal'), 'th' => $langs->transnoentitiesnoconv('SeparatorThousand'));
-		print '<script>
-(function () {
-	var selfSupplierBlocked = '.($selfSupplierBlocked ? 'true' : 'false').';
-	var dec = '.json_encode($fmt['dec'] === 'SeparatorDecimal' ? ',' : $fmt['dec']).', group = '.json_encode(in_array($fmt['th'], array('SeparatorThousand', 'None'), true) ? '' : $fmt['th']).';
-	var targetNet = '.json_encode(isset($extracted['amount_ht']) ? (float) $extracted['amount_ht'] : null).';
-	var targetGross = '.json_encode(isset($extracted['amount_ttc']) ? (float) $extracted['amount_ttc'] : null).';
-	var mismatchNet = '.json_encode($langs->transnoentitiesnoconv('AuvoRechnungsimportErrReviewTotalMismatchHT', '__SUM__', '__AMOUNT__')).';
-	var mismatchGross = '.json_encode($langs->transnoentitiesnoconv('AuvoRechnungsimportErrReviewTotalMismatchTTC', '__SUM__', '__AMOUNT__')).';
-	function fmt(n) { return n.toFixed(2).replace(".", dec); }
-	function num(v) {
-		var s = String(v || "").replace(/\\s/g, "");
-		if (dec !== "." && s.indexOf(dec) >= 0) { if (group) s = s.split(group).join(""); s = s.split(dec).join("."); }
-		var n = parseFloat(s); return Number.isFinite(n) ? n : 0;
-	}
-	function update() {
-		var qty = num(document.querySelector("input[name=manual_line_qty]").value), price = num(document.querySelector("input[name=manual_line_price]").value), vat = num(document.querySelector("input[name=manual_line_vat]").value);
-		var net = Math.round(qty * price * 100) / 100, gross = Math.round(net * (1 + vat / 100) * 100) / 100, tolerance = 0.02;
-		document.getElementById("auvorechnungsimport-manual-net").textContent = fmt(net);
-		document.getElementById("auvorechnungsimport-manual-gross").textContent = fmt(gross);
-		var netMismatch = targetNet !== null && Math.abs(net - targetNet) > tolerance;
-		var grossMismatch = targetGross !== null && Math.abs(gross - targetGross) > tolerance;
-		document.getElementById("auvorechnungsimport-manual-check-net").textContent = netMismatch ? mismatchNet.replace("__SUM__", fmt(net)).replace("__AMOUNT__", fmt(targetNet)) : "";
-		document.getElementById("auvorechnungsimport-manual-check-gross").textContent = grossMismatch ? mismatchGross.replace("__SUM__", fmt(gross)).replace("__AMOUNT__", fmt(targetGross)) : "";
-		document.getElementById("auvorechnungsimport-create-invoice").disabled = selfSupplierBlocked || netMismatch || grossMismatch;
-	}
-	document.querySelectorAll("input[name^=\"manual_line_\"]").forEach(function (input) { input.addEventListener("input", update); });
-	update();
-})();
-</script>';
-	}
+	print '<div class="opacitymedium">'.$langs->trans('AuvoRechnungsimportLinesHint').'</div>';
 	print '<script>(function(){var wrap=document.getElementById("existing_supplier_select_wrap");if(!wrap)return;function toggle(){var selected=document.querySelector("input[name=supplier_mode]:checked");var isNew=selected&&selected.value==="new";wrap.style.display=isNew?"none":"";var select=wrap.querySelector("select[name=fk_soc]");if(select){select.required=!isNew;}}document.querySelectorAll("input[name=supplier_mode]").forEach(function(r){r.addEventListener("change",toggle);});toggle();})();</script>';
 	print '</form>';
+	if ($requireInvoiceRef) {
+		print '<script>(function(){var form=document.getElementById("auvorechnungsimport-review-form"),ref=form&&form.querySelector("input[name=ref_supplier]"),button=document.getElementById("auvorechnungsimport-create-invoice");if(!form||!ref||!button)return;var message='.json_encode($langs->transnoentitiesnoconv('AuvoRechnungsimportErrInvoiceRefRequired')).';ref.addEventListener("input",function(){ref.setCustomValidity("");});form.addEventListener("submit",function(event){if(event.submitter===button&&!ref.value.trim()){event.preventDefault();ref.setCustomValidity(message);ref.reportValidity();}});})();</script>';
+	}
 }
 print '</div>';
+print '</main></div>';
+print '<script>(function(){var button=document.getElementById("auvorechnungsimport-menu-toggle");if(!button)return;var body=document.body,menu=document.querySelector(".side-nav"),pinned=false;body.classList.add("auvorechnungsimport-menu-hidden");function sync(){var peek=body.classList.contains("auvorechnungsimport-menu-peek");button.style.left=peek&&menu?Math.max(0,menu.getBoundingClientRect().right-24)+"px":"0px";button.classList.toggle("is-open",peek);button.classList.toggle("is-pinned",peek&&pinned);button.innerHTML=peek?"<span class=\"fas fa-thumbtack\" aria-hidden=\"true\"></span>":"<span class=\"fas fa-angle-right\" aria-hidden=\"true\"></span>";button.title=peek?(pinned?"Menü lösen und schließen":"Menü fixieren") : "Dolibarr-Menü anzeigen";button.setAttribute("aria-label",button.title);}function show(){if(!pinned)body.classList.add("auvorechnungsimport-menu-peek");sync();}function hide(){if(!pinned)body.classList.remove("auvorechnungsimport-menu-peek");sync();}button.addEventListener("mouseenter",show);button.addEventListener("focus",show);button.addEventListener("click",function(){if(body.classList.contains("auvorechnungsimport-menu-peek")){pinned=!pinned;if(!pinned)body.classList.remove("auvorechnungsimport-menu-peek");}else{pinned=true;body.classList.add("auvorechnungsimport-menu-peek");}sync();});if(menu){menu.addEventListener("mouseenter",show);menu.addEventListener("mouseleave",function(){if(!button.matches(":hover"))hide();});}button.addEventListener("mouseleave",function(){if(!menu||!menu.matches(":hover"))hide();});button.addEventListener("blur",hide);window.addEventListener("resize",sync);sync();})();</script>';
 
 llxFooter();

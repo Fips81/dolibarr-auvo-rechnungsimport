@@ -16,13 +16,13 @@
  * skipped once we have a VAT number or invoice total.
  */
 
-require_once DOL_DOCUMENT_ROOT.'/core/lib/functions.lib.php';
-require_once DOL_DOCUMENT_ROOT.'/core/lib/bank.lib.php';
-if (file_exists(__DIR__.'/../../vendor/autoload.php')) {
-	require_once __DIR__.'/../../vendor/autoload.php';
+require_once DOL_DOCUMENT_ROOT . '/core/lib/functions.lib.php';
+require_once DOL_DOCUMENT_ROOT . '/core/lib/bank.lib.php';
+if (file_exists(__DIR__ . '/../../vendor/autoload.php')) {
+	require_once __DIR__ . '/../../vendor/autoload.php';
 }
-require_once __DIR__.'/auvorechnungsimport_einvoice.php';
-require_once __DIR__.'/auvorechnungsimport_view.php';
+require_once __DIR__ . '/auvorechnungsimport_einvoice.php';
+require_once __DIR__ . '/auvorechnungsimport_view.php';
 
 /** Find an earlier import with the same SHA-256, preferring a booked invoice. */
 function auvorechnungsimport_find_duplicate_by_hash($db, $hash, $excludeId = 0, $md5 = '')
@@ -32,23 +32,23 @@ function auvorechnungsimport_find_duplicate_by_hash($db, $hash, $excludeId = 0, 
 	// Backfill legacy PDF imports lazily so the first new arrival can match files
 	// received before file hashes were introduced. Successfully hashed rows are
 	// skipped on later calls.
-	$sqlLegacy = "SELECT rowid, filepath FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
+	$sqlLegacy = "SELECT rowid, filepath FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_importedinvoice";
 	$sqlLegacy .= " WHERE (file_hash IS NULL OR file_hash = '') AND LOWER(original_filename) LIKE '%.pdf'";
-	$sqlLegacy .= " AND entity IN (".getEntity('importedinvoice').") ORDER BY rowid ASC";
+	$sqlLegacy .= " AND entity IN (" . getEntity('importedinvoice') . ") ORDER BY rowid ASC";
 	$resLegacy = $db->query($sqlLegacy);
 	while ($resLegacy && ($legacy = $db->fetch_object($resLegacy))) {
 		$legacyPath = auvorechnungsimport_resolve_file((string) $legacy->filepath);
 		if ($legacyPath === false) continue;
 		$legacyHash = hash_file('sha256', $legacyPath);
 		if ($legacyHash === false) continue;
-		$sqlUpdateHash = "UPDATE ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice SET file_hash = '".$db->escape($legacyHash)."'";
-		$sqlUpdateHash .= " WHERE rowid = ".((int) $legacy->rowid)." AND (file_hash IS NULL OR file_hash = '')";
+		$sqlUpdateHash = "UPDATE " . MAIN_DB_PREFIX . "auvorechnungsimport_importedinvoice SET file_hash = '" . $db->escape($legacyHash) . "'";
+		$sqlUpdateHash .= " WHERE rowid = " . ((int) $legacy->rowid) . " AND (file_hash IS NULL OR file_hash = '')";
 		$db->query($sqlUpdateHash);
 	}
-	$sql = "SELECT rowid, ref, status, fk_facture_fourn, extracted_data FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
-	$sql .= " WHERE file_hash = '".$db->escape($hash)."' AND entity IN (".getEntity('importedinvoice').")";
-	if ($excludeId > 0) $sql .= " AND rowid <> ".((int) $excludeId);
-	$sql .= " ORDER BY CASE WHEN status = ".((int) ImportedInvoice::STATUS_IMPORTED)." AND fk_facture_fourn > 0 THEN 0 WHEN fk_facture_fourn > 0 THEN 1 ELSE 2 END, date_creation ASC, rowid ASC".$db->plimit(1);
+	$sql = "SELECT rowid, ref, status, fk_facture_fourn, extracted_data FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_importedinvoice";
+	$sql .= " WHERE file_hash = '" . $db->escape($hash) . "' AND entity IN (" . getEntity('importedinvoice') . ")";
+	if ($excludeId > 0) $sql .= " AND rowid <> " . ((int) $excludeId);
+	$sql .= " ORDER BY CASE WHEN status = " . ((int) ImportedInvoice::STATUS_IMPORTED) . " AND fk_facture_fourn > 0 THEN 0 WHEN fk_facture_fourn > 0 THEN 1 ELSE 2 END, date_creation ASC, rowid ASC" . $db->plimit(1);
 	$resql = $db->query($sql);
 	$match = null;
 	if ($resql && ($row = $db->fetch_object($resql))) {
@@ -57,8 +57,8 @@ function auvorechnungsimport_find_duplicate_by_hash($db, $hash, $excludeId = 0, 
 		$metadata = json_decode((string) $row->extracted_data, true);
 		$canonicalId = (int) ($metadata['duplicate_of_import_id'] ?? 0);
 		if ($canonicalId > 0 && $canonicalId !== $match['id']) {
-			$sqlCanonical = "SELECT rowid, ref, fk_facture_fourn FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
-			$sqlCanonical .= " WHERE rowid = ".$canonicalId." AND entity IN (".getEntity('importedinvoice').")".$db->plimit(1);
+			$sqlCanonical = "SELECT rowid, ref, fk_facture_fourn FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_importedinvoice";
+			$sqlCanonical .= " WHERE rowid = " . $canonicalId . " AND entity IN (" . getEntity('importedinvoice') . ")" . $db->plimit(1);
 			$resCanonical = $db->query($sqlCanonical);
 			if ($resCanonical && ($canonical = $db->fetch_object($resCanonical))) {
 				$match['id'] = (int) $canonical->rowid;
@@ -72,14 +72,14 @@ function auvorechnungsimport_find_duplicate_by_hash($db, $hash, $excludeId = 0, 
 	// physical file still exists beneath the Dolibarr data root and verifies.
 	$md5 = strtolower(trim((string) $md5));
 	if ($md5 !== '' && preg_match('/^[a-f0-9]{32}$/', $md5) && isModEnabled('ecm')) {
-		$sqlEcm = "SELECT rowid, filepath, filename, src_object_type, src_object_id FROM ".MAIN_DB_PREFIX."ecm_files";
-		$sqlEcm .= " WHERE label = '".$db->escape($md5)."' AND entity IN (".getEntity('ecmfiles').") ORDER BY rowid ASC".$db->plimit(20);
+		$sqlEcm = "SELECT rowid, filepath, filename, src_object_type, src_object_id FROM " . MAIN_DB_PREFIX . "ecm_files";
+		$sqlEcm .= " WHERE label = '" . $db->escape($md5) . "' AND entity IN (" . getEntity('ecmfiles') . ") ORDER BY rowid ASC" . $db->plimit(20);
 		$resEcm = $db->query($sqlEcm);
 		$root = realpath(DOL_DATA_ROOT);
 		while ($resEcm && ($ecm = $db->fetch_object($resEcm))) {
 			if ($root === false) break;
-			$path = realpath($root.DIRECTORY_SEPARATOR.(string) $ecm->filepath.DIRECTORY_SEPARATOR.(string) $ecm->filename);
-			$prefix = rtrim($root, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR;
+			$path = realpath($root . DIRECTORY_SEPARATOR . (string) $ecm->filepath . DIRECTORY_SEPARATOR . (string) $ecm->filename);
+			$prefix = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
 			if ($path === false || strncmp($path, $prefix, strlen($prefix)) !== 0 || !is_file($path) || !is_readable($path)) continue;
 			if (md5_file(dol_osencode($path)) !== $md5 || hash_file('sha256', dol_osencode($path)) !== $hash) continue;
 			$ecmMatch = array('source' => 'ecm', 'id' => 0, 'ref' => '', 'ecm_id' => (int) $ecm->rowid, 'filename' => (string) $ecm->filename, 'fk_facture_fourn' => 0);
@@ -93,7 +93,7 @@ function auvorechnungsimport_find_duplicate_by_hash($db, $hash, $excludeId = 0, 
 				$ecmMatch['object_id'] = (int) $ecm->src_object_id;
 			}
 			if (!empty($ecm->src_object_id) && in_array((string) $ecm->src_object_type, array('facture_fourn', 'supplier_invoice'), true)) {
-				require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.facture.class.php';
+				require_once DOL_DOCUMENT_ROOT . '/fourn/class/fournisseur.facture.class.php';
 				$invoice = new FactureFournisseur($db);
 				if ($invoice->fetch((int) $ecm->src_object_id) > 0) $ecmMatch['fk_facture_fourn'] = (int) $invoice->id;
 			}
@@ -129,7 +129,7 @@ function auvorechnungsimport_ecm_business_object_url($type, $id)
 	);
 	$type = strtolower(trim((string) $type));
 	if (!isset($routes[$type])) return '';
-	return DOL_URL_ROOT.$routes[$type][0].'?'.$routes[$type][1].'='.$id;
+	return DOL_URL_ROOT . $routes[$type][0] . '?' . $routes[$type][1] . '=' . $id;
 }
 
 /** Return a safe card link for a known duplicate target. */
@@ -139,13 +139,13 @@ function auvorechnungsimport_duplicate_target_link($match)
 	if (is_object($langs)) $langs->load('auvorechnungsimport');
 	if (!empty($match['fk_facture_fourn'])) {
 		return array(
-			'url' => DOL_URL_ROOT.'/fourn/facture/card.php?id='.(int) $match['fk_facture_fourn'],
-			'label' => is_object($langs) ? $langs->trans('AuvoRechnungsimportLinkedSupplierInvoice', (int) $match['fk_facture_fourn']) : 'Supplier invoice #'.(int) $match['fk_facture_fourn'],
+			'url' => DOL_URL_ROOT . '/fourn/facture/card.php?id=' . (int) $match['fk_facture_fourn'],
+			'label' => is_object($langs) ? $langs->trans('AuvoRechnungsimportLinkedSupplierInvoice', (int) $match['fk_facture_fourn']) : 'Supplier invoice #' . (int) $match['fk_facture_fourn'],
 		);
 	}
 	if (!empty($match['id'])) {
 		return array(
-			'url' => dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.(int) $match['id'],
+			'url' => dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1) . '?id=' . (int) $match['id'],
 			'label' => (string) ($match['ref'] ?? ''),
 		);
 	}
@@ -155,7 +155,7 @@ function auvorechnungsimport_duplicate_target_link($match)
 	}
 	if (!empty($match['ecm_id'])) {
 		return array(
-			'url' => DOL_URL_ROOT.'/ecm/file_card.php?id='.(int) $match['ecm_id'],
+			'url' => DOL_URL_ROOT . '/ecm/file_card.php?id=' . (int) $match['ecm_id'],
 			'label' => is_object($langs) ? $langs->trans('AuvoRechnungsimportLinkedEcmFile', (string) ($match['filename'] ?? '')) : (string) ($match['filename'] ?? 'ECM file'),
 		);
 	}
@@ -190,7 +190,7 @@ function auvorechnungsimport_blockedlog_write($db, $user, $action, $element, $ob
 {
 	global $conf, $langs;
 	if (!isModEnabled('blockedlog')) return -1;
-	require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/blockedlog/class/blockedlog.class.php';
 
 	$block = new BlockedLog($db);
 	$block->action = (string) $action;
@@ -209,7 +209,7 @@ function auvorechnungsimport_blockedlog_write($db, $user, $action, $element, $ob
 	$block->object_data = is_object($objectData) ? $objectData : (object) $objectData;
 	$result = $block->create($user);
 	if ($result <= 0) {
-		dol_syslog('AuvoRechnungsimport: BlockedLog event '.$action.' failed: '.$block->error, LOG_ERR);
+		dol_syslog('AuvoRechnungsimport: BlockedLog event ' . $action . ' failed: ' . $block->error, LOG_ERR);
 		return -1;
 	}
 	return $result;
@@ -219,11 +219,11 @@ function auvorechnungsimport_blockedlog_write($db, $user, $action, $element, $ob
 function auvorechnungsimport_blockedlog_get_received($db, $importId)
 {
 	if (!isModEnabled('blockedlog') || (int) $importId <= 0) return array('id' => 0, 'sha256' => '');
-	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE action = 'AUVORECHNUNGSIMPORT_RECEIVED' AND element = 'importedinvoice' AND fk_object = ".((int) $importId)." ORDER BY rowid ASC".$db->plimit(1);
+	$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "blockedlog WHERE action = 'AUVORECHNUNGSIMPORT_RECEIVED' AND element = 'importedinvoice' AND fk_object = " . ((int) $importId) . " ORDER BY rowid ASC" . $db->plimit(1);
 	$resql = $db->query($sql);
 	$info = array('id' => 0, 'sha256' => '');
 	if ($resql && ($row = $db->fetch_object($resql))) {
-		require_once DOL_DOCUMENT_ROOT.'/blockedlog/class/blockedlog.class.php';
+		require_once DOL_DOCUMENT_ROOT . '/blockedlog/class/blockedlog.class.php';
 		$block = new BlockedLog($db);
 		if ($block->fetch((int) $row->rowid) > 0) {
 			$info['id'] = (int) $row->rowid;
@@ -238,7 +238,7 @@ function auvorechnungsimport_blockedlog_get_received($db, $importId)
 function auvorechnungsimport_blockedlog_preview_markup($importId, $mime)
 {
 	global $langs;
-	$url = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_file.php', 1).'?id='.(int) $importId.'&blockedlogpreview=1';
+	$url = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_file.php', 1) . '?id=' . (int) $importId . '&blockedlogpreview=1';
 	$mime = in_array((string) $mime, array('application/pdf', 'application/xml', 'text/xml'), true) ? (string) $mime : 'application/octet-stream';
 	if (is_object($langs)) {
 		$langs->load('auvorechnungsimport');
@@ -247,9 +247,9 @@ function auvorechnungsimport_blockedlog_preview_markup($importId, $mime)
 		$title = 'Preview logged original';
 	}
 	if ($mime === 'application/pdf') {
-		return '<a class="pictopreview documentpreview" href="'.dol_escape_htmltag($url).'" mime="application/pdf" target="_blank" rel="noopener noreferrer" title="'.dol_escape_htmltag($title).'"><span class="fas fa-search-plus pictofixedwidth" style="color:#808080"></span></a>';
+		return '<a class="pictopreview documentpreview" href="' . dol_escape_htmltag($url) . '" mime="application/pdf" target="_blank" rel="noopener noreferrer" title="' . dol_escape_htmltag($title) . '"><span class="fas fa-search-plus pictofixedwidth" style="color:#808080"></span></a>';
 	}
-	return '<a href="'.dol_escape_htmltag($url).'" target="_blank" rel="noopener noreferrer" title="'.dol_escape_htmltag($title).'"><span class="fas fa-download pictofixedwidth" style="color:#808080"></span></a>';
+	return '<a href="' . dol_escape_htmltag($url) . '" target="_blank" rel="noopener noreferrer" title="' . dol_escape_htmltag($title) . '"><span class="fas fa-download pictofixedwidth" style="color:#808080"></span></a>';
 }
 
 /** Log an automatically detected duplicate without writing another filesystem copy. */
@@ -278,7 +278,12 @@ function auvorechnungsimport_blockedlog_log_auto_duplicate($db, $object, $conten
 		'link' => auvorechnungsimport_blockedlog_preview_markup($object->id, $mime),
 	);
 	return auvorechnungsimport_blockedlog_write(
-		$db, $user, 'AUVORECHNUNGSIMPORT_DUPLICATE_AUTO', 'importedinvoice', $object->id, $object->entity,
+		$db,
+		$user,
+		'AUVORECHNUNGSIMPORT_DUPLICATE_AUTO',
+		'importedinvoice',
+		$object->id,
+		$object->entity,
 		$object->ref,
 		!empty($match['fk_facture_fourn']) ? 'invoice_supplier' : (!empty($match['id']) ? 'importedinvoice' : (string) ($match['object_type'] ?? 'ecm')),
 		!empty($match['ref']) ? (string) $match['ref'] : (!empty($match['import_ref']) ? (string) $match['import_ref'] : (string) ($match['filename'] ?? '')),
@@ -293,7 +298,7 @@ function auvorechnungsimport_blockedlog_store_received_file($db, $object, $path,
 	global $langs;
 	if (!getDolGlobalInt('AUVORECHNUNGSIMPORT_BLOCKEDLOG_ENABLE')) return 1;
 	if (!is_readable($path)) return -1;
-	$existing = $db->query("SELECT rowid FROM ".MAIN_DB_PREFIX."blockedlog WHERE action = 'AUVORECHNUNGSIMPORT_RECEIVED' AND element = '".$db->escape((string) $object->element)."' AND fk_object = ".((int) $object->id).$db->plimit(1));
+	$existing = $db->query("SELECT rowid FROM " . MAIN_DB_PREFIX . "blockedlog WHERE action = 'AUVORECHNUNGSIMPORT_RECEIVED' AND element = '" . $db->escape((string) $object->element) . "' AND fk_object = " . ((int) $object->id) . $db->plimit(1));
 	if ($existing && $db->num_rows($existing) > 0) return 1;
 	$size = filesize($path);
 	// BlockedLog.object_data is MEDIUMTEXT (16 MiB). Keep headroom for JSON metadata.
@@ -315,8 +320,16 @@ function auvorechnungsimport_blockedlog_store_received_file($db, $object, $path,
 		'link' => auvorechnungsimport_blockedlog_preview_markup($object->id, $mime),
 	);
 	return auvorechnungsimport_blockedlog_write(
-		$db, $user, 'AUVORECHNUNGSIMPORT_RECEIVED', $object->element, $object->id, $object->entity,
-		$object->ref, 'importedinvoice', $object->ref, $data,
+		$db,
+		$user,
+		'AUVORECHNUNGSIMPORT_RECEIVED',
+		$object->element,
+		$object->id,
+		$object->entity,
+		$object->ref,
+		'importedinvoice',
+		$object->ref,
+		$data,
 		array('date_object' => $object->date_creation ?: dol_now(), 'user_fullname' => !empty($user->id) ? $user->getFullName($langs) : '(Email Collector)')
 	);
 }
@@ -326,7 +339,7 @@ function auvorechnungsimport_verify_invoice_attachment($db, $import, $invoice)
 {
 	$result = array('status' => 'unavailable', 'attachment_exists' => false, 'log_hash' => '', 'attachment_hash' => '');
 	if (empty($import->id) || empty($invoice->id)) return $result;
-	$path = auvorechnungsimport_invoice_docdir($invoice).'/'.dol_sanitizeFileName($import->original_filename);
+	$path = auvorechnungsimport_invoice_docdir($invoice) . '/' . dol_sanitizeFileName($import->original_filename);
 	if (is_readable($path)) {
 		$result['attachment_exists'] = true;
 		$hash = hash_file('sha256', $path);
@@ -384,8 +397,16 @@ function auvorechnungsimport_blockedlog_log_validated_invoice($db, $invoice, $us
 	}
 	$data['invoiceline'] = $lines;
 	return auvorechnungsimport_blockedlog_write(
-		$db, $user, 'BILL_SUPPLIER_VALIDATE', $invoice->element, $invoice->id, $invoice->entity,
-		$invoice->ref, 'importedinvoice', $import->ref, $data,
+		$db,
+		$user,
+		'BILL_SUPPLIER_VALIDATE',
+		$invoice->element,
+		$invoice->id,
+		$invoice->entity,
+		$invoice->ref,
+		'importedinvoice',
+		$import->ref,
+		$data,
 		array('amounts' => $invoice->total_ttc, 'amounts_taxexcl' => $invoice->total_ht, 'date_object' => $invoice->date)
 	);
 }
@@ -408,8 +429,16 @@ function auvorechnungsimport_blockedlog_log_duplicate_confirmation($db, $import,
 		'confirmed_at' => dol_print_date(dol_now(), '%Y-%m-%d %H:%M:%S', 'gmt'),
 	);
 	return auvorechnungsimport_blockedlog_write(
-		$db, $user, 'AUVORECHNUNGSIMPORT_DUPLICATE_CONFIRMED', 'importedinvoice', $import->id, $import->entity,
-		$import->ref, 'invoice_supplier', $duplicateInvoice->ref, $objectData,
+		$db,
+		$user,
+		'AUVORECHNUNGSIMPORT_DUPLICATE_CONFIRMED',
+		'importedinvoice',
+		$import->id,
+		$import->entity,
+		$import->ref,
+		'invoice_supplier',
+		$duplicateInvoice->ref,
+		$objectData,
 		array('amounts' => $data['amount_ttc'] ?? 0)
 	);
 }
@@ -432,8 +461,16 @@ function auvorechnungsimport_blockedlog_log_spam_confirmation($db, $import, $use
 		'confirmed_at' => dol_print_date(dol_now(), '%Y-%m-%d %H:%M:%S', 'gmt'),
 	);
 	return auvorechnungsimport_blockedlog_write(
-		$db, $user, 'AUVORECHNUNGSIMPORT_SPAM_CONFIRMED', 'importedinvoice', $import->id, $import->entity,
-		$import->ref, 'importedinvoice', $import->ref, $objectData
+		$db,
+		$user,
+		'AUVORECHNUNGSIMPORT_SPAM_CONFIRMED',
+		'importedinvoice',
+		$import->id,
+		$import->entity,
+		$import->ref,
+		'importedinvoice',
+		$import->ref,
+		$objectData
 	);
 }
 
@@ -465,8 +502,18 @@ function auvorechnungsimport_blockedlog_log_import_deleted($db, $import, $user, 
 		'deleted_at' => dol_print_date(dol_now(), '%Y-%m-%d %H:%M:%S', 'gmt'),
 	);
 	return auvorechnungsimport_blockedlog_write(
-		$db, $user, 'AUVORECHNUNGSIMPORT_DELETED', 'importedinvoice', $import->id, $import->entity,
-		$import->ref, 'importedinvoice_deleted', $import->ref, $objectData,
+		$db,
+		$user,
+		'AUVORECHNUNGSIMPORT_DELETED',
+		'importedinvoice',
+		$import->id,
+		$import->entity,
+		$import->ref,
+		// BlockedLog.linktype is a short relation code; the event action already
+		// identifies this as a deletion, so keep the link type within core limits.
+		'importedinvoice',
+		$import->ref,
+		$objectData,
 		array('amounts' => $data['amount_ttc'] ?? 0, 'amounts_taxexcl' => $data['amount_ht'] ?? 0)
 	);
 }
@@ -484,15 +531,15 @@ function auvorechnungsimport_resolve_file($filepath)
 	if (!is_string($filepath) || $filepath === '' || strpos($filepath, "\0") !== false) {
 		return false;
 	}
-	$roots = array(DOL_DATA_ROOT.'/auvorechnungsimport');
+	$roots = array(DOL_DATA_ROOT . '/auvorechnungsimport');
 	$file = false;
 	foreach ($roots as $root) {
 		$base = realpath($root);
 		if ($base === false || !is_dir($base)) {
 			continue;
 		}
-		$candidate = realpath($base.DIRECTORY_SEPARATOR.$filepath);
-		$prefix = rtrim($base, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR;
+		$candidate = realpath($base . DIRECTORY_SEPARATOR . $filepath);
+		$prefix = rtrim($base, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
 		if ($candidate !== false && strncmp($candidate, $prefix, strlen($prefix)) === 0 && is_file($candidate) && is_readable($candidate)) {
 			$file = $candidate;
 			break;
@@ -623,38 +670,38 @@ function auvorechnungsimport_extract_ocr($pdfpath, $langs = 'deu+fra+eng', $maxP
 	if (!function_exists('shell_exec') || !function_exists('proc_open')) {
 		return '';
 	}
-	$tmpdir = sys_get_temp_dir().'/auvorechnungsimport_'.bin2hex(random_bytes(8));
+	$tmpdir = sys_get_temp_dir() . '/auvorechnungsimport_' . bin2hex(random_bytes(8));
 	if (!@mkdir($tmpdir, 0700, true)) {
 		return '';
 	}
 
 	$text = '';
 	try {
-		$prefix = $tmpdir.'/page';
-		$cmd = 'pdftoppm -png -r 300 -f 1 -l '.max(1, (int) $maxPages).' '.escapeshellarg($pdfpath).' '.escapeshellarg($prefix).' 2>&1';
+		$prefix = $tmpdir . '/page';
+		$cmd = 'pdftoppm -png -r 300 -f 1 -l ' . max(1, (int) $maxPages) . ' ' . escapeshellarg($pdfpath) . ' ' . escapeshellarg($prefix) . ' 2>&1';
 		exec($cmd, $output, $retval);
 		if ($retval !== 0) {
 			return '';
 		}
 
-		$pages = glob($prefix.'*.png');
+		$pages = glob($prefix . '*.png');
 		sort($pages);
 		foreach ($pages as $page) {
-			$outbase = $page.'.ocrout';
+			$outbase = $page . '.ocrout';
 			$safeLangs = preg_replace('/[^a-z+]/i', '', $langs);
-			$cmd = 'tesseract '.escapeshellarg($page).' '.escapeshellarg($outbase).' -l '.escapeshellarg($safeLangs ?: 'eng').' txt tsv 2>&1';
+			$cmd = 'tesseract ' . escapeshellarg($page) . ' ' . escapeshellarg($outbase) . ' -l ' . escapeshellarg($safeLangs ?: 'eng') . ' txt tsv 2>&1';
 			exec($cmd, $output2, $retval2);
-			$txtfile = $outbase.'.txt';
+			$txtfile = $outbase . '.txt';
 			if ($retval2 === 0 && is_readable($txtfile)) {
-				$text .= file_get_contents($txtfile)."\n";
+				$text .= file_get_contents($txtfile) . "\n";
 			}
-			$tsvfile = $outbase.'.tsv';
+			$tsvfile = $outbase . '.tsv';
 			if ($retval2 === 0 && is_readable($tsvfile)) {
-				$layoutText .= auvorechnungsimport_tsv_to_layout(file_get_contents($tsvfile))."\n";
+				$layoutText .= auvorechnungsimport_tsv_to_layout(file_get_contents($tsvfile)) . "\n";
 			}
 		}
 	} finally {
-		foreach (glob($tmpdir.'/*') ?: array() as $f) {
+		foreach (glob($tmpdir . '/*') ?: array() as $f) {
 			@unlink($f);
 		}
 		@rmdir($tmpdir);
@@ -685,6 +732,7 @@ function auvorechnungsimport_parse_fields($text)
 		'supplier_email' => '',
 		'supplier_phone' => '',
 		'supplier_iban' => '',
+		'supplier_account_holder' => '',
 		'supplier_country' => '',
 		'supplier_address' => array(),
 		'supplier_contact_firstname' => '',
@@ -704,9 +752,9 @@ function auvorechnungsimport_parse_fields($text)
 	// 316/5750/1282 - Id.-Nr.: DE 293 640 208") - a single combined regex would match
 	// whichever label happens to come first in the text, which is often the wrong one.
 	$vatLabels = 'USt[.\s-]*Ident(?:ifikations)?[.\s-]*Nr\.?|USt-?IdNr\.?|UStIdNr\.?|Umsatzsteuer-?Identifikationsnummer|Umsatzsteuer-?ID(?:Nr\.?)?|Id[.\s]*-?Nr\.?|UID|VAT[ -]?(?:ID|No\.?|Reg(?:istration)?\.?\s*No\.?)?|TVA(?:\s*intracommunautaire)?|N°?\s*TVA';
-	$taxRefLabels = 'Steuernummer|Steuer-?Nr\.?|SIRET|SIREN';
+	$taxRefLabels = 'Steuernummer|Steuer[\s\p{Pd}]*Nr\.?|SIRET|SIREN';
 	foreach (array($vatLabels, $taxRefLabels) as $i => $labels) {
-		if (preg_match('/(?:'.$labels.')[ \t]*[:.]?[ \t]*([A-Z]{0,2}[ \t]?[A-Z0-9][A-Z0-9 \t\/.-]{3,18})/iu', $text, $m)) {
+		if (preg_match('/(?:' . $labels . ')[ \t]*[:.]?[ \t]*([A-Z]{0,2}[ \t]?[A-Z0-9][A-Z0-9 \t\/.-]{3,18})/iu', $text, $m)) {
 			$candidate = auvorechnungsimport_normalize_vat(trim($m[1]));
 			if (preg_match('/\d{5,}/', $candidate)) {
 				$result[$i === 0 ? 'supplier_vat' : 'supplier_tax_id'] = $candidate;
@@ -738,11 +786,11 @@ function auvorechnungsimport_parse_fields($text)
 	// Accept cent amounts (625,00) and the German no-cents notation (625,- / 625,–).
 	$amountToken = '[0-9]{1,3}(?:[.\s][0-9]{3})*(?:[,.][0-9]{2}|[,.]\s*[-–—]{1,2})';
 	// Total amount: label followed by a number, optionally with currency symbol.
-	if (preg_match('/(?:Gesamtbetrag|Gesamtpreis|Gesamtsumme|Rechnungsbetrag|Rechnungswert|Rechnungsendbetrag|Bruttorechnungswert|Endbetrag|Endsumme|Zahlbetrag|Zu\s*zahlen(?:der\s*Betrag)?|Betrag\s+von|Total\s*TTC|Total\s*à\s*payer|Total\s*due|Montant\s*total)[^\d\n]{0,40}('.$amountToken.')/iu', $text, $m)) {
+	if (preg_match('/(?:Gesamtbetrag|Gesamtpreis|Gesamtsumme|Rechnungsbetrag|Rechnungswert|Rechnungsendbetrag|Bruttorechnungswert|Endbetrag|Endsumme|Zahlbetrag|Zu\s*zahlen(?:der\s*Betrag)?|Betrag\s+von|Total\s*TTC|Total\s*à\s*payer|Total\s*due|Montant\s*total)[^\d\n]{0,40}(' . $amountToken . ')/iu', $text, $m)) {
 		$result['amount_ttc'] = auvorechnungsimport_parse_amount($m[1]);
 	}
 	// Net total - only used to cross-check detected invoice lines.
-	if (preg_match('/(?:Netto[- ]?(?:Gesamtwert|Gesamtbetrag|betrag|summe|wert|Warenwert)|Nettosumme|Summe\s*netto|Gesamt\s*netto|Warenwert(?:\s*netto)?|Total\s*HT|Montant\s*HT|Net\s*(?:amount|total)|Subtotal|Netto(?=\s*:))[^\d\n]{0,40}?('.$amountToken.')/iu', $text, $m)) {
+	if (preg_match('/(?:Netto[- ]?(?:Gesamtwert|Gesamtbetrag|betrag|summe|wert|Warenwert)|Nettosumme|Summe\s*netto|Gesamt\s*netto|Zwischensumme\s*\(\s*netto\s*\)|Warenwert(?!\s*\(\s*brutto\s*\))(?:\s*netto)?|Total\s*HT|Montant\s*HT|Net\s*(?:amount|total)|Subtotal|Netto(?=\s*:))[^\d\n]{0,40}?(' . $amountToken . ')/iu', $text, $m)) {
 		$result['amount_ht'] = auvorechnungsimport_parse_amount($m[1]);
 	}
 	// Some German invoices print no separate net total, but list the taxable
@@ -753,7 +801,7 @@ function auvorechnungsimport_parse_fields($text)
 		$vatLabel = '(?:MwSt|USt|Mehrwertsteuer|Umsatzsteuer|VAT|TVA)\.?';
 		$baseNumber = '(-?[0-9]{1,3}(?:[. \x{00A0}][0-9]{3})*[,.][0-9]{2})';
 		foreach (preg_split('/\r\n|\r|\n/u', $text) as $textLine) {
-			if (preg_match('/\b'.$vatLabel.'\b/iu', $textLine) && preg_match('/\bvon\s*'.$baseNumber.'/iu', $textLine, $baseMatch)) {
+			if (preg_match('/\b' . $vatLabel . '\b/iu', $textLine) && preg_match('/\bvon\s*' . $baseNumber . '/iu', $textLine, $baseMatch)) {
 				$baseValue = preg_replace('/[\s\x{00A0}]+/u', '', $baseMatch[1]);
 				$base = auvorechnungsimport_parse_amount($baseValue);
 				if ($base !== null) $vatBases[] = $base;
@@ -772,6 +820,9 @@ function auvorechnungsimport_parse_fields($text)
 	if (preg_match('/\b(?:IBAN\s*[:.]?\s*)?([A-Z]{2}\s?\d{2}(?:[\s-]?\d){10,30})\b/iu', $text, $m)) {
 		$iban = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $m[1]));
 		if (checkIbanForAccount(null, $iban)) $result['supplier_iban'] = $iban;
+	}
+	if (preg_match('/\bKontoinhaber(?:in)?\s*[:.]?\s*([^\r\n]+)/iu', $text, $m)) {
+		$result['supplier_account_holder'] = trim($m[1], " \t.,;:");
 	}
 	if (preg_match('/(?:Telefon|Tel\.?|Phone|Mobil|Mobile|Fax)[^\d+]{0,12}(\+?[0-9][0-9 ()\/.\-]{5,20}[0-9])/iu', $text, $m)) {
 		$result['supplier_phone'] = trim($m[1]);
@@ -805,9 +856,41 @@ function auvorechnungsimport_parse_fields($text)
 			// common German organization prefixes that appear alone on the previous
 			// line, e.g. "Sportgemeinschaft" + "Johannesberg 1926 e.V.".
 			if ($lineIndex > 0 && preg_match('/^(?:Sportgemeinschaft|Arbeitsgemeinschaft|Interessengemeinschaft|Baugenossenschaft|Wohnungsbaugesellschaft|Erzeugergemeinschaft|Einkaufsgemeinschaft|Verwaltungsgemeinschaft)$/iu', trim($candidateLines[$lineIndex - 1]))) {
-				$result['supplier_name'] = trim($candidateLines[$lineIndex - 1]).' '.$result['supplier_name'];
+				$result['supplier_name'] = trim($candidateLines[$lineIndex - 1]) . ' ' . $result['supplier_name'];
 			}
 			$result['supplier_name_confident'] = true;
+			break;
+		}
+	}
+	// German sender lines are often printed as "Name - Street 12 - 12345 City";
+	// some PDFs use a pipe or a bullet glyph instead of the hyphen.
+	// above the recipient. Parse this fixed format structurally; PDF text order
+	// can be flattened across columns, so do not infer an address from proximity
+	// to the recipient block.
+	if (empty($result['supplier_address']['line1']) || empty($result['supplier_address']['postcode']) || empty($result['supplier_address']['city'])) {
+		$senderPattern = '/^(.+?)\s*[-|•\x{F0B7}\x{F09F}]\s*(.+?)\s+(\d+\s*[a-zA-Z]?(?:\s*[-\/]\s*\d+\s*[a-zA-Z]?)?)\s*[-|•\x{F0B7}\x{F09F}]\s*(\d{5})\s+(.+)$/u';
+		foreach (preg_split('/\r\n|\r|\n/u', $text) as $senderLine) {
+			$senderLine = preg_replace('/\s+/u', ' ', trim($senderLine));
+			if ($senderLine === '' || strlen($senderLine) > 180 || !preg_match($senderPattern, $senderLine, $senderMatch)) {
+				continue;
+			}
+			if (empty($result['supplier_name_confident'])) {
+				$result['supplier_name'] = trim($senderMatch[1]);
+				$result['supplier_name_confident'] = true;
+			}
+			if (empty($result['supplier_address']['line1'])) {
+				$result['supplier_address']['line1'] = trim($senderMatch[2] . ' ' . $senderMatch[3]);
+			}
+			if (empty($result['supplier_address']['postcode'])) {
+				$result['supplier_address']['postcode'] = trim($senderMatch[4]);
+			}
+			if (empty($result['supplier_address']['city'])) {
+				$result['supplier_address']['city'] = trim($senderMatch[5]);
+			}
+			if (empty($result['supplier_country'])) {
+				$result['supplier_country'] = 'DE';
+				$result['supplier_address']['country'] = 'DE';
+			}
 			break;
 		}
 	}
@@ -816,6 +899,94 @@ function auvorechnungsimport_parse_fields($text)
 	}
 
 	return $result;
+}
+
+/** Validate a German IBAN's length, syntax and MOD-97 checksum locally. */
+function auvorechnungsimport_is_valid_de_iban($iban)
+{
+	$iban = strtoupper(preg_replace('/\s+/', '', (string) $iban));
+	if (!preg_match('/^DE\d{20}$/', $iban)) return false;
+
+	$rearranged = substr($iban, 4) . substr($iban, 0, 4);
+	$remainder = 0;
+	foreach (str_split($rearranged) as $character) {
+		$digits = ctype_alpha($character) ? (string) (ord($character) - 55) : $character;
+		foreach (str_split($digits) as $digit) {
+			$remainder = (($remainder * 10) + (int) $digit) % 97;
+		}
+	}
+	return $remainder === 1;
+}
+
+/** Get German bank-account details from a valid DE IBAN and optionally the BLZ API. */
+function auvorechnungsimport_bank_details_from_iban($iban)
+{
+	static $cache = array();
+	$iban = strtoupper(preg_replace('/\s+/', '', (string) $iban));
+	if (!auvorechnungsimport_is_valid_de_iban($iban)) return array();
+
+	$bankCode = substr($iban, 4, 8);
+	$details = array(
+		'bank_code' => $bankCode,
+		'account_number' => substr($iban, 12, 10),
+		'currency_code' => 'EUR',
+		'country_code' => 'DE',
+		'bank_lookup_attempted' => true,
+	);
+	if (isset($cache[$bankCode])) return array_merge($details, $cache[$bankCode]);
+
+	$apiKey = trim(getDolGlobalString('AUVORECHNUNGSIMPORT_SEPA_TOOLBOX_API_KEY'));
+	$bankInfo = array();
+	require_once DOL_DOCUMENT_ROOT . '/core/lib/geturl.lib.php';
+	$url = 'https://fintechtoolbox.com/bankcodes/' . rawurlencode($bankCode) . '.json';
+	$response = getURLContent($url, 'GET', '', 1, array('Accept: application/json'), array('https'), 0, 1, 3, 6);
+	// The lookup works anonymously. Only retry with the configured key when the
+	// service explicitly requires authentication; a provider-side 500 is ignored.
+	if (in_array((int) ($response['http_code'] ?? 0), array(401, 403), true) && $apiKey !== '') {
+		$response = getURLContent(
+			$url,
+			'GET',
+			'',
+			1,
+			array('Authorization: token ' . $apiKey, 'Accept: application/json'),
+			array('https'),
+			0,
+			1,
+			3,
+			6
+		);
+	}
+	if (!empty($response['http_code']) && (int) $response['http_code'] === 200) {
+		$content = trim((string) ($response['content'] ?? ''));
+		$decoded = json_decode($content, true);
+		$record = array();
+		if (is_array($decoded)) {
+			if (is_array($decoded['bank_code'] ?? null)) {
+				$record = $decoded['bank_code'];
+			} elseif (is_array($decoded['data']['bank_code'] ?? null)) {
+				$record = $decoded['data']['bank_code'];
+			} elseif (isset($decoded['bank_name']) || isset($decoded['description'])) {
+				$record = $decoded;
+			}
+		}
+		$recordCode = preg_replace('/\D/', '', (string) ($record['code'] ?? ''));
+		if ($record && ($recordCode === '' || $recordCode === $bankCode)) {
+			$bankName = trim((string) ($record['bank_name'] ?? ''));
+			if ($bankName === '') $bankName = trim((string) ($record['description'] ?? ''));
+			$bankInfo = array(
+				'bank_name' => $bankName,
+				'bic' => trim((string) ($record['bic'] ?? '')),
+				'bank_postal_code' => trim((string) ($record['postal_code'] ?? '')),
+				'bank_city' => trim((string) ($record['city'] ?? '')),
+			);
+		} else {
+			dol_syslog('AuvoRechnungsimport: bank-code response could not be mapped for BLZ ' . $bankCode . ' (JSON ' . json_last_error_msg() . ', keys ' . implode(',', array_keys(is_array($decoded) ? $decoded : array())) . ')', LOG_WARNING);
+		}
+	} else {
+		dol_syslog('AuvoRechnungsimport: bank-code lookup failed for BLZ ' . $bankCode . ' (HTTP ' . (int) ($response['http_code'] ?? 0) . ')', LOG_WARNING);
+	}
+	$cache[$bankCode] = $bankInfo;
+	return array_merge($details, $bankInfo);
 }
 
 /**
@@ -830,10 +1001,10 @@ function auvorechnungsimport_parse_fields($text)
 function auvorechnungsimport_match_supplier($db, $vat, $name, $taxId = '')
 {
 	if (!empty($vat)) {
-		$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."societe";
-		$sql .= " WHERE REPLACE(REPLACE(REPLACE(UPPER(tva_intra), ' ', ''), '.', ''), '-', '') = '".$db->escape(auvorechnungsimport_normalize_vat($vat))."'";
+		$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "societe";
+		$sql .= " WHERE REPLACE(REPLACE(REPLACE(UPPER(tva_intra), ' ', ''), '.', ''), '-', '') = '" . $db->escape(auvorechnungsimport_normalize_vat($vat)) . "'";
 		$sql .= " AND fournisseur = 1";
-		$sql .= " AND entity IN (".getEntity('societe').")";
+		$sql .= " AND entity IN (" . getEntity('societe') . ")";
 		$sql .= $db->plimit(2);
 		$resql = $db->query($sql);
 		if ($resql && $db->num_rows($resql) === 1 && ($obj = $db->fetch_object($resql))) {
@@ -844,9 +1015,9 @@ function auvorechnungsimport_match_supplier($db, $vat, $name, $taxId = '')
 	// businesses: Dolibarr keeps it in professional ID 1 for German companies.
 	$taxDigits = preg_replace('/[^0-9]/', '', (string) $taxId);
 	if (strlen($taxDigits) >= 10) {
-		$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."societe";
-		$sql .= " WHERE REPLACE(REPLACE(REPLACE(idprof1, '/', ''), ' ', ''), '-', '') = '".$db->escape($taxDigits)."'";
-		$sql .= " AND fournisseur = 1 AND entity IN (".getEntity('societe').")";
+		$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "societe";
+		$sql .= " WHERE REPLACE(REPLACE(REPLACE(REPLACE(idprof1, '/', ''), ' ', ''), '-', ''), '.', '') = '" . $db->escape($taxDigits) . "'";
+		$sql .= " AND fournisseur = 1 AND entity IN (" . getEntity('societe') . ")";
 		$sql .= $db->plimit(2);
 		$resql = $db->query($sql);
 		if ($resql && $db->num_rows($resql) == 1 && ($obj = $db->fetch_object($resql))) {
@@ -863,10 +1034,10 @@ function auvorechnungsimport_match_supplier($db, $vat, $name, $taxId = '')
 		if (empty($candidate) || dol_strlen($candidate) < 3) {
 			continue;
 		}
-		$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."societe";
-		$sql .= " WHERE UPPER(nom) LIKE '%".$db->escape(strtoupper($db->escapeforlike($candidate)))."%'";
+		$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "societe";
+		$sql .= " WHERE UPPER(nom) LIKE '%" . $db->escape(strtoupper($db->escapeforlike($candidate))) . "%'";
 		$sql .= " AND fournisseur = 1";
-		$sql .= " AND entity IN (".getEntity('societe').")";
+		$sql .= " AND entity IN (" . getEntity('societe') . ")";
 		$sql .= $db->plimit(2);
 		$resql = $db->query($sql);
 		if ($resql && $db->num_rows($resql) == 1 && ($obj = $db->fetch_object($resql))) {
@@ -890,9 +1061,9 @@ function auvorechnungsimport_find_non_supplier_by_vat($db, $vat)
 	if ($vat === '') {
 		return null;
 	}
-	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."societe";
-	$sql .= " WHERE REPLACE(REPLACE(REPLACE(UPPER(tva_intra), ' ', ''), '.', ''), '-', '') = '".$db->escape($vat)."'";
-	$sql .= " AND fournisseur <> 1 AND entity IN (".getEntity('societe').")";
+	$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "societe";
+	$sql .= " WHERE REPLACE(REPLACE(REPLACE(UPPER(tva_intra), ' ', ''), '.', ''), '-', '') = '" . $db->escape($vat) . "'";
+	$sql .= " AND fournisseur <> 1 AND entity IN (" . getEntity('societe') . ")";
 	$sql .= $db->plimit(2);
 	$resql = $db->query($sql);
 	if (!$resql || $db->num_rows($resql) !== 1) {
@@ -950,7 +1121,7 @@ function auvorechnungsimport_is_own_company_supplier($db, $fields = array(), $su
 	}
 
 	if ($supplierId > 0) {
-		require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+		require_once DOL_DOCUMENT_ROOT . '/societe/class/societe.class.php';
 		$supplier = new Societe($db);
 		if ($supplier->fetch((int) $supplierId) > 0) {
 			$supplierVat = auvorechnungsimport_normalize_vat($supplier->tva_intra ?? '');
@@ -1006,16 +1177,20 @@ function auvorechnungsimport_create_supplier_from_fields($db, $user, $fields, $c
 	}
 	$name = trim((string) ($fields['supplier_name'] ?? ''));
 	$vat = auvorechnungsimport_normalize_vat($fields['supplier_vat'] ?? '');
+	$taxId = trim((string) ($fields['supplier_tax_id'] ?? ''));
+	$taxDigits = preg_replace('/[^0-9]/', '', $taxId);
 
-	// Reuse a unique existing partner by VAT when present; otherwise use an
-	// exact company-name match to avoid duplicate suppliers without a VAT ID.
-	$sql = "SELECT rowid, fournisseur FROM ".MAIN_DB_PREFIX."societe WHERE ";
+	// Reuse a unique existing partner by VAT, then by tax number when no VAT ID
+	// exists, and only then by exact name to avoid creating a duplicate.
+	$sql = "SELECT rowid, fournisseur FROM " . MAIN_DB_PREFIX . "societe WHERE ";
 	if ($vat !== '') {
-		$sql .= "REPLACE(REPLACE(REPLACE(UPPER(tva_intra), ' ', ''), '.', ''), '-', '') = '".$db->escape($vat)."'";
+		$sql .= "REPLACE(REPLACE(REPLACE(UPPER(tva_intra), ' ', ''), '.', ''), '-', '') = '" . $db->escape($vat) . "'";
+	} elseif (strlen($taxDigits) >= 10) {
+		$sql .= "REPLACE(REPLACE(REPLACE(REPLACE(idprof1, '/', ''), ' ', ''), '-', ''), '.', '') = '" . $db->escape($taxDigits) . "'";
 	} else {
-		$sql .= "UPPER(nom) = UPPER('".$db->escape($name)."')";
+		$sql .= "UPPER(nom) = UPPER('" . $db->escape($name) . "')";
 	}
-	$sql .= " AND entity IN (".getEntity('societe').")".$db->plimit(2);
+	$sql .= " AND entity IN (" . getEntity('societe') . ")" . $db->plimit(2);
 	$resql = $db->query($sql);
 	if (!$resql) {
 		$error = $db->lasterror();
@@ -1023,7 +1198,7 @@ function auvorechnungsimport_create_supplier_from_fields($db, $user, $fields, $c
 	}
 	if ($db->num_rows($resql) > 0) {
 		if ($db->num_rows($resql) !== 1) {
-			$error = 'Mehrere Geschäftspartner mit derselben USt-IdNr. oder demselben Firmennamen gefunden.';
+			$error = 'Mehrere Geschäftspartner mit derselben USt-IdNr., Steuernummer oder demselben Firmennamen gefunden.';
 			return 0;
 		}
 		$obj = $db->fetch_object($resql);
@@ -1032,8 +1207,8 @@ function auvorechnungsimport_create_supplier_from_fields($db, $user, $fields, $c
 		return 0;
 	}
 
-	require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
-	require_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
+	require_once DOL_DOCUMENT_ROOT . '/societe/class/societe.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/core/lib/company.lib.php';
 	$supplier = new Societe($db);
 	$supplier->name = dol_trunc($name, 128);
 	$supplier->entity = (int) $conf->entity;
@@ -1041,11 +1216,16 @@ function auvorechnungsimport_create_supplier_from_fields($db, $user, $fields, $c
 	$supplier->fournisseur = 1;
 	$supplier->code_fournisseur = 'auto';
 	$supplier->tva_intra = $vat;
+	if (($choices['update_supplier_tax_id'] ?? 'update') === 'update') {
+		$supplier->idprof1 = dol_trunc(trim((string) ($fields['supplier_tax_id'] ?? '')), 128);
+	}
 	$supplier->tva_assuj = 1;
 	$address = $fields['supplier_address'] ?? array();
 	if (is_array($address)) {
 		$supplier->address = trim(implode("\n", array_filter(array(
-			(string) ($address['line1'] ?? ''), (string) ($address['line2'] ?? ''), (string) ($address['line3'] ?? ''),
+			(string) ($address['line1'] ?? ''),
+			(string) ($address['line2'] ?? ''),
+			(string) ($address['line3'] ?? ''),
 		), 'strlen')));
 		$supplier->zip = (string) ($address['postcode'] ?? '');
 		$supplier->town = (string) ($address['city'] ?? '');
@@ -1060,7 +1240,7 @@ function auvorechnungsimport_create_supplier_from_fields($db, $user, $fields, $c
 	if ($supplier->create($user) > 0) {
 		return (int) $supplier->id;
 	}
-	dol_syslog('AuvoRechnungsimport: supplier auto-creation failed for VAT '.$vat.': '.implode(', ', $supplier->errors), LOG_WARNING);
+	dol_syslog('AuvoRechnungsimport: supplier auto-creation failed for VAT ' . $vat . ': ' . implode(', ', $supplier->errors), LOG_WARNING);
 	$error = !empty($supplier->errors) ? implode('; ', $supplier->errors) : ($supplier->error ?: $db->lasterror());
 	return 0;
 }
@@ -1068,6 +1248,7 @@ function auvorechnungsimport_create_supplier_from_fields($db, $user, $fields, $c
 /** Validate the proposed review lines against extracted invoice totals before creation. */
 function auvorechnungsimport_check_review_totals($extracted)
 {
+	global $user;
 	$lines = isset($extracted['lines']) && is_array($extracted['lines']) ? $extracted['lines'] : array();
 	$net = 0.0;
 	$gross = 0.0;
@@ -1075,13 +1256,18 @@ function auvorechnungsimport_check_review_totals($extracted)
 	$skippedGross = 0.0;
 	$count = 0;
 	$missingVatLines = array();
+	$missingProductLines = array();
 	if ($lines) {
 		foreach ($lines as $i => $line) {
-			$skipLine = GETPOST('line_mode_'.$i, 'aZ09') === 'skip';
-			$qtyRaw = GETPOST('line_qty_'.$i, 'alpha');
-			$priceRaw = GETPOST('line_price_'.$i, 'alpha');
-			$vatRaw = GETPOST('line_vat_'.$i, 'alpha');
-			$submittedPriceBase = GETPOST('line_price_base_'.$i, 'alpha');
+			$lineMode = GETPOST('line_mode_' . $i, 'aZ09');
+			$skipLine = $lineMode === 'skip';
+			$canCreateVariant = isModEnabled('variants') && is_object($user) && $user->hasRight('produit', 'creer');
+			$willCreateVariant = $canCreateVariant && GETPOSTINT('create_variant_' . $i);
+			if (!$skipLine && $lineMode !== 'cost' && GETPOSTINT('lineprod_' . $i) <= 0 && !$willCreateVariant) $missingProductLines[] = (int) $i + 1;
+			$qtyRaw = GETPOST('line_qty_' . $i, 'alpha');
+			$priceRaw = GETPOST('line_price_' . $i, 'alpha');
+			$vatRaw = GETPOST('line_vat_' . $i, 'alpha');
+			$submittedPriceBase = GETPOST('line_price_base_' . $i, 'alpha');
 			$vatValue = price2num($vatRaw);
 			if (trim((string) $vatRaw) === '' || !is_numeric($vatValue) || (float) $vatValue < 0 || (float) $vatValue > 100) $missingVatLines[] = (int) $i + 1;
 			$qty = (float) price2num($qtyRaw);
@@ -1111,20 +1297,23 @@ function auvorechnungsimport_check_review_totals($extracted)
 			$count++;
 		}
 	} else {
+		$manualMode = GETPOST('manual_line_mode', 'aZ09');
+		$skipLine = $manualMode === 'skip';
+		if (!$skipLine && $manualMode !== 'cost' && GETPOSTINT('manual_line_product_id') <= 0) $missingProductLines[] = 1;
 		$qtyRaw = GETPOST('manual_line_qty', 'alpha');
 		$priceRaw = GETPOST('manual_line_price', 'alpha');
 		$vatRaw = GETPOST('manual_line_vat', 'alpha');
 		$qty = (float) price2num($qtyRaw);
 		$price = (float) price2num($priceRaw, 'MU');
 		$vat = (float) price2num($vatRaw);
-		if ($qty > 0 && $price >= 0 && $vat >= 0 && $vat <= 100) {
+		if (!$skipLine && $qty > 0 && $price >= 0 && $vat >= 0 && $vat <= 100) {
 			$net = round($qty * $price, 2);
 			$gross = round($net * (1 + $vat / 100), 2);
 			$count = 1;
 		}
 	}
 	if ($count === 0) {
-		return array('checked' => true, 'valid' => false, 'errors' => array(), 'missing_vat_lines' => $missingVatLines, 'no_lines' => true, 'net' => 0.0, 'gross' => 0.0, 'skipped_net' => $skippedNet, 'skipped_gross' => $skippedGross, 'expected_net' => null, 'expected_gross' => null, 'count' => 0);
+		return array('checked' => true, 'valid' => false, 'errors' => array(), 'missing_vat_lines' => $missingVatLines, 'missing_product_lines' => $missingProductLines, 'no_lines' => true, 'net' => 0.0, 'gross' => 0.0, 'skipped_net' => $skippedNet, 'skipped_gross' => $skippedGross, 'expected_net' => null, 'expected_gross' => null, 'count' => 0);
 	}
 	$checks = array();
 	if (isset($extracted['amount_ht']) && $extracted['amount_ht'] !== null && $count > 0) {
@@ -1139,8 +1328,16 @@ function auvorechnungsimport_check_review_totals($extracted)
 		if (abs($check[1] - $check[2]) > $tolerance) $errors[] = $check;
 	}
 	return array(
-		'checked' => !empty($checks), 'valid' => empty($errors) && empty($missingVatLines), 'errors' => $errors, 'missing_vat_lines' => $missingVatLines, 'no_lines' => false,
-		'net' => $net, 'gross' => $gross, 'skipped_net' => $skippedNet, 'skipped_gross' => $skippedGross,
+		'checked' => !empty($checks),
+		'valid' => empty($errors) && empty($missingVatLines) && empty($missingProductLines),
+		'errors' => $errors,
+		'missing_vat_lines' => $missingVatLines,
+		'missing_product_lines' => $missingProductLines,
+		'no_lines' => false,
+		'net' => $net,
+		'gross' => $gross,
+		'skipped_net' => $skippedNet,
+		'skipped_gross' => $skippedGross,
 		'expected_net' => isset($extracted['amount_ht']) && $extracted['amount_ht'] !== null ? (float) $extracted['amount_ht'] - $skippedNet : null,
 		'expected_gross' => isset($extracted['amount_ttc']) && $extracted['amount_ttc'] !== null ? (float) $extracted['amount_ttc'] - $skippedGross : null,
 		'count' => $count
@@ -1164,7 +1361,7 @@ function auvorechnungsimport_process_file($db, $object, $abspath, $user = null)
 		// XML that is no EN 16931 invoice ends up as an error record.
 		$inv = auvorechnungsimport_parse_einvoice((string) @file_get_contents($abspath));
 		$fields = $inv !== null ? auvorechnungsimport_einvoice_to_fields($inv) : array('lines' => array());
-		$method = $inv !== null ? 'xml-'.$inv['syntax'] : 'xml';
+		$method = $inv !== null ? 'xml-' . $inv['syntax'] : 'xml';
 	} else {
 		$fields = auvorechnungsimport_extract_facturx($abspath);
 		$method = 'facturx';
@@ -1244,13 +1441,16 @@ function auvorechnungsimport_process_file($db, $object, $abspath, $user = null)
 			}
 		}
 		list($fields['lines'], $fields['lines_check']) = auvorechnungsimport_finish_text_lines($lines, $totals, $lineText);
-		if (auvorechnungsimport_is_german_small_business_invoice($text.' '.$lineText)) {
+		if (auvorechnungsimport_is_german_small_business_invoice($text . ' ' . $lineText)) {
 			$fields['vat_treatment'] = 'DE_KLEINUNTERNEHMER_19';
 		}
 		if (empty($fields['amount_ht']) && !empty($totals['amount_ht'])) {
 			$fields['amount_ht'] = $totals['amount_ht'];
 		}
 	}
+
+	$bankDetails = auvorechnungsimport_bank_details_from_iban($fields['supplier_iban'] ?? '');
+	if ($bankDetails) $fields['supplier_bank_details'] = $bankDetails;
 
 	list($fkSoc, $confidence) = auvorechnungsimport_match_supplier($db, $fields['supplier_vat'] ?? '', $fields['supplier_name'] ?? '', $fields['supplier_tax_id'] ?? '');
 	$object->extraction_method = $method;
@@ -1261,7 +1461,7 @@ function auvorechnungsimport_process_file($db, $object, $abspath, $user = null)
 	// a usable hint (VAT, amount, supplier name or invoice ref), the record is
 	// still worth a manual review rather than being flagged as an error. The
 	// review form is shown either way, this only affects the status label.
-	$gotSomething = !empty($fields['supplier_vat']) || !empty($fields['amount_ttc'])
+	$gotSomething = !empty($fields['supplier_vat']) || !empty($fields['supplier_tax_id']) || !empty($fields['amount_ttc'])
 		|| !empty($fields['supplier_name']) || !empty($fields['invoice_ref']);
 	if (!$gotSomething) {
 		$object->status = ImportedInvoice::STATUS_ERROR;
@@ -1269,12 +1469,12 @@ function auvorechnungsimport_process_file($db, $object, $abspath, $user = null)
 		if (auvorechnungsimport_is_xml_file($abspath)) {
 			$details[] = 'Die XML-Datei konnte nicht als unterstützte XRechnung/EN-16931-Rechnung gelesen werden.';
 		} else {
-			$details[] = 'Keine Rechnungsdaten (Lieferant, Rechnungsnummer oder Betrag) erkannt.';
-			$details[] = 'PDF-Text: '.($lineText === null ? 'pdftotext nicht verfügbar oder fehlgeschlagen' : (trim($lineText) === '' ? 'keine Textebene gefunden' : 'Text vorhanden'));
+			$details[] = 'Keine Rechnungsdaten (Lieferant, Steuernummer, Rechnungsnummer oder Betrag) erkannt.';
+			$details[] = 'PDF-Text: ' . ($lineText === null ? 'pdftotext nicht verfügbar oder fehlgeschlagen' : (trim($lineText) === '' ? 'keine Textebene gefunden' : 'Text vorhanden'));
 			if (!empty($ocrText)) $details[] = 'OCR: Text wurde erkannt, enthielt aber keine verwertbaren Rechnungsfelder.';
 			else $details[] = 'OCR lieferte keinen Text; Poppler, Tesseract und Sprachpakete prüfen.';
 		}
-		$object->note_private = trim((string) $object->note_private."\n[Analysefehler] ".implode(' ', $details));
+		$object->note_private = trim((string) $object->note_private . "\n[Analysefehler] " . implode(' ', $details));
 	} elseif ($fkSoc) {
 		// Supplier was matched automatically - nothing left to look up, just confirm.
 		$object->status = ImportedInvoice::STATUS_MATCHED;
@@ -1344,7 +1544,7 @@ function auvorechnungsimport_parse_cii_date($raw)
 {
 	$raw = trim((string) $raw);
 	if (preg_match('/^(\d{4})(\d{2})(\d{2})$/', $raw, $m)) {
-		return $m[1].'-'.$m[2].'-'.$m[3];
+		return $m[1] . '-' . $m[2] . '-' . $m[3];
 	}
 	return null;
 }
@@ -1401,12 +1601,12 @@ function auvorechnungsimport_line_keys($line)
  */
 function auvorechnungsimport_lookup_learned($db, $fkSoc, $keyType, $matchKey)
 {
-	$sql = "SELECT m.fk_product FROM ".MAIN_DB_PREFIX."auvorechnungsimport_linemap as m";
-	$sql .= " INNER JOIN ".MAIN_DB_PREFIX."product as p ON p.rowid = m.fk_product";
-	$sql .= " WHERE m.fk_soc = ".((int) $fkSoc)." AND m.key_type = '".$db->escape($keyType)."'";
-	$sql .= " AND m.match_key = '".$db->escape($matchKey)."'";
-	$sql .= " AND m.entity IN (".getEntity('auvorechnungsimport').")";
-	$resql = $db->query($sql.$db->plimit(1));
+	$sql = "SELECT m.fk_product FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap as m";
+	$sql .= " INNER JOIN " . MAIN_DB_PREFIX . "product as p ON p.rowid = m.fk_product";
+	$sql .= " WHERE m.fk_soc = " . ((int) $fkSoc) . " AND m.key_type = '" . $db->escape($keyType) . "'";
+	$sql .= " AND m.match_key = '" . $db->escape($matchKey) . "'";
+	$sql .= " AND m.entity IN (" . getEntity('auvorechnungsimport') . ")";
+	$resql = $db->query($sql . $db->plimit(1));
 	return ($resql && ($obj = $db->fetch_object($resql))) ? (int) $obj->fk_product : 0;
 }
 
@@ -1433,7 +1633,7 @@ function auvorechnungsimport_lookup_learned($db, $fkSoc, $keyType, $matchKey)
 function auvorechnungsimport_match_lines($db, $fkSoc, $lines)
 {
 	$uniqueProduct = function ($sql) use ($db) {
-		$resql = $db->query($sql.$db->plimit(2));
+		$resql = $db->query($sql . $db->plimit(2));
 		if ($resql && $db->num_rows($resql) == 1 && ($obj = $db->fetch_object($resql))) {
 			return (int) $obj->fk_product;
 		}
@@ -1447,10 +1647,10 @@ function auvorechnungsimport_match_lines($db, $fkSoc, $lines)
 		$keys = auvorechnungsimport_line_keys($line);
 
 		if ($fkSoc > 0 && $ref !== '') {
-			$sql = "SELECT DISTINCT pfp.fk_product FROM ".MAIN_DB_PREFIX."product_fournisseur_price as pfp";
-			$sql .= " INNER JOIN ".MAIN_DB_PREFIX."product as p ON p.rowid = pfp.fk_product";
-			$sql .= " WHERE pfp.fk_soc = ".((int) $fkSoc)." AND pfp.ref_fourn = '".$db->escape($ref)."'";
-			$sql .= " AND pfp.entity IN (".getEntity('productsupplierprice').")";
+			$sql = "SELECT DISTINCT pfp.fk_product FROM " . MAIN_DB_PREFIX . "product_fournisseur_price as pfp";
+			$sql .= " INNER JOIN " . MAIN_DB_PREFIX . "product as p ON p.rowid = pfp.fk_product";
+			$sql .= " WHERE pfp.fk_soc = " . ((int) $fkSoc) . " AND pfp.ref_fourn = '" . $db->escape($ref) . "'";
+			$sql .= " AND pfp.entity IN (" . getEntity('productsupplierprice') . ")";
 			$fkProduct = $uniqueProduct($sql);
 			$source = 'supplier_price';
 		}
@@ -1498,32 +1698,32 @@ function auvorechnungsimport_match_lines($db, $fkSoc, $lines)
 			foreach ($learnKeys as $keyType => $matchKey) {
 				$fkProduct = auvorechnungsimport_lookup_learned($db, $fkSoc, $keyType, $matchKey);
 				if ($fkProduct) {
-					$source = 'learned_'.$keyType;
+					$source = 'learned_' . $keyType;
 					break;
 				}
 			}
 		}
 
 		if (!$fkProduct && !empty($line['gtin'])) {
-			$sql = "SELECT rowid as fk_product FROM ".MAIN_DB_PREFIX."product";
-			$sql .= " WHERE barcode = '".$db->escape($line['gtin'])."'";
-			$sql .= " AND entity IN (".getEntity('product').")";
+			$sql = "SELECT rowid as fk_product FROM " . MAIN_DB_PREFIX . "product";
+			$sql .= " WHERE barcode = '" . $db->escape($line['gtin']) . "'";
+			$sql .= " AND entity IN (" . getEntity('product') . ")";
 			$fkProduct = $uniqueProduct($sql);
 			$source = 'barcode';
 		}
 
 		if (!$fkProduct && $ref !== '') {
-			$sql = "SELECT rowid as fk_product FROM ".MAIN_DB_PREFIX."product";
-			$sql .= " WHERE ref = '".$db->escape($ref)."'";
-			$sql .= " AND entity IN (".getEntity('product').")";
+			$sql = "SELECT rowid as fk_product FROM " . MAIN_DB_PREFIX . "product";
+			$sql .= " WHERE ref = '" . $db->escape($ref) . "'";
+			$sql .= " AND entity IN (" . getEntity('product') . ")";
 			$fkProduct = $uniqueProduct($sql);
 			$source = 'suggest_ref';
 		}
 
 		if (!$fkProduct && !empty($line['label'])) {
-			$sql = "SELECT rowid as fk_product FROM ".MAIN_DB_PREFIX."product";
-			$sql .= " WHERE UPPER(label) = '".$db->escape(mb_strtoupper(trim($line['label']), 'UTF-8'))."'";
-			$sql .= " AND entity IN (".getEntity('product').")";
+			$sql = "SELECT rowid as fk_product FROM " . MAIN_DB_PREFIX . "product";
+			$sql .= " WHERE UPPER(label) = '" . $db->escape(mb_strtoupper(trim($line['label']), 'UTF-8')) . "'";
+			$sql .= " AND entity IN (" . getEntity('product') . ")";
 			$fkProduct = $uniqueProduct($sql);
 			$source = 'suggest_label';
 		}
@@ -1583,15 +1783,15 @@ function auvorechnungsimport_learn_line($db, $user, $fkSoc, $line, $fkProduct)
 		return 0;
 	}
 	foreach (auvorechnungsimport_line_keys($line) as $keyType => $matchKey) {
-		$where = " WHERE entity = ".((int) $conf->entity)." AND fk_soc = ".((int) $fkSoc);
-		$where .= " AND key_type = '".$db->escape($keyType)."' AND match_key = '".$db->escape($matchKey)."'";
+		$where = " WHERE entity = " . ((int) $conf->entity) . " AND fk_soc = " . ((int) $fkSoc);
+		$where .= " AND key_type = '" . $db->escape($keyType) . "' AND match_key = '" . $db->escape($matchKey) . "'";
 
 		if ($fkProduct <= 0) {
 			// Keep the ambiguity marker of a ref: clearing one variant doesn't make
 			// the ref unique again.
-			$sql = "DELETE FROM ".MAIN_DB_PREFIX."auvorechnungsimport_linemap".$where.($keyType === 'ref' ? " AND fk_product <> 0" : "");
+			$sql = "DELETE FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap" . $where . ($keyType === 'ref' ? " AND fk_product <> 0" : "");
 		} else {
-			$resql = $db->query("SELECT rowid, fk_product FROM ".MAIN_DB_PREFIX."auvorechnungsimport_linemap".$where);
+			$resql = $db->query("SELECT rowid, fk_product FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap" . $where);
 			if (!$resql) {
 				return -1;
 			}
@@ -1601,20 +1801,20 @@ function auvorechnungsimport_learn_line($db, $user, $fkSoc, $line, $fkProduct)
 				// the user corrected us, so the old mapping is replaced and its count
 				// starts over. Different product under the same ref: the ref is shared
 				// by several products and becomes ambiguous.
-				$sql = "UPDATE ".MAIN_DB_PREFIX."auvorechnungsimport_linemap SET";
+				$sql = "UPDATE " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap SET";
 				if ((int) $obj->fk_product == $fkProduct) {
 					$sql .= " nb_used = nb_used + 1";
 				} elseif ($keyType === 'ref') {
 					$sql .= " fk_product = 0, nb_used = 0";
 				} else {
-					$sql .= " fk_product = ".((int) $fkProduct).", nb_used = 1";
+					$sql .= " fk_product = " . ((int) $fkProduct) . ", nb_used = 1";
 				}
-				$sql .= " WHERE rowid = ".((int) $obj->rowid);
+				$sql .= " WHERE rowid = " . ((int) $obj->rowid);
 			} else {
-				$sql = "INSERT INTO ".MAIN_DB_PREFIX."auvorechnungsimport_linemap";
+				$sql = "INSERT INTO " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap";
 				$sql .= " (entity, fk_soc, key_type, match_key, fk_product, nb_used, date_creation, fk_user_creat)";
-				$sql .= " VALUES (".((int) $conf->entity).", ".((int) $fkSoc).", '".$db->escape($keyType)."', '".$db->escape($matchKey)."',";
-				$sql .= " ".((int) $fkProduct).", 1, '".$db->idate(dol_now())."', ".((int) $user->id).")";
+				$sql .= " VALUES (" . ((int) $conf->entity) . ", " . ((int) $fkSoc) . ", '" . $db->escape($keyType) . "', '" . $db->escape($matchKey) . "',";
+				$sql .= " " . ((int) $fkProduct) . ", 1, '" . $db->idate(dol_now()) . "', " . ((int) $user->id) . ")";
 			}
 		}
 		if (!$db->query($sql)) {
@@ -1630,23 +1830,23 @@ function auvorechnungsimport_learn_line($db, $user, $fkSoc, $line, $fkProduct)
 		$fkParent = auvorechnungsimport_variant_parent_of($db, $fkProduct);
 		if ($fkParent > 0) {
 			$matchKey = dol_trunc($ref, 255, 'right', 'UTF-8', 1);
-			$sql = "DELETE FROM ".MAIN_DB_PREFIX."auvorechnungsimport_linemap WHERE entity = ".((int) $conf->entity)." AND fk_soc = ".((int) $fkSoc);
-			$sql .= " AND key_type = 'parent' AND match_key = '".$db->escape($matchKey)."' AND fk_product <> ".((int) $fkParent);
+			$sql = "DELETE FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap WHERE entity = " . ((int) $conf->entity) . " AND fk_soc = " . ((int) $fkSoc);
+			$sql .= " AND key_type = 'parent' AND match_key = '" . $db->escape($matchKey) . "' AND fk_product <> " . ((int) $fkParent);
 			if (!$db->query($sql)) {
 				return -1;
 			}
-			$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."auvorechnungsimport_linemap WHERE entity = ".((int) $conf->entity)." AND fk_soc = ".((int) $fkSoc);
-			$sql .= " AND key_type = 'parent' AND match_key = '".$db->escape($matchKey)."'";
+			$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap WHERE entity = " . ((int) $conf->entity) . " AND fk_soc = " . ((int) $fkSoc);
+			$sql .= " AND key_type = 'parent' AND match_key = '" . $db->escape($matchKey) . "'";
 			$resql = $db->query($sql);
 			if (!$resql) {
 				return -1;
 			}
 			if ($obj = $db->fetch_object($resql)) {
-				$sql = "UPDATE ".MAIN_DB_PREFIX."auvorechnungsimport_linemap SET nb_used = nb_used + 1 WHERE rowid = ".((int) $obj->rowid);
+				$sql = "UPDATE " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap SET nb_used = nb_used + 1 WHERE rowid = " . ((int) $obj->rowid);
 			} else {
-				$sql = "INSERT INTO ".MAIN_DB_PREFIX."auvorechnungsimport_linemap";
+				$sql = "INSERT INTO " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap";
 				$sql .= " (entity, fk_soc, key_type, match_key, fk_product, nb_used, date_creation, fk_user_creat)";
-				$sql .= " VALUES (".((int) $conf->entity).", ".((int) $fkSoc).", 'parent', '".$db->escape($matchKey)."', ".((int) $fkParent).", 1, '".$db->idate(dol_now())."', ".((int) $user->id).")";
+				$sql .= " VALUES (" . ((int) $conf->entity) . ", " . ((int) $fkSoc) . ", 'parent', '" . $db->escape($matchKey) . "', " . ((int) $fkParent) . ", 1, '" . $db->idate(dol_now()) . "', " . ((int) $user->id) . ")";
 			}
 			if (!$db->query($sql)) {
 				return -1;
@@ -1672,8 +1872,8 @@ function auvorechnungsimport_learn_line($db, $user, $fkSoc, $line, $fkProduct)
 function auvorechnungsimport_update_buyprice($db, $user, $fkSoc, $fkProduct, $line)
 {
 	global $conf;
-	require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.product.class.php';
-	require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/fourn/class/fournisseur.product.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/societe/class/societe.class.php';
 
 	$price = (float) ($line['price'] ?? 0);
 	if ($fkSoc <= 0 || $fkProduct <= 0 || $price <= 0) {
@@ -1686,10 +1886,10 @@ function auvorechnungsimport_update_buyprice($db, $user, $fkSoc, $fkProduct, $li
 		return -1;
 	}
 
-	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."product_fournisseur_price";
-	$sql .= " WHERE fk_product = ".((int) $fkProduct)." AND fk_soc = ".((int) $fkSoc)." AND quantity <= 1";
-	$sql .= " AND entity IN (".getEntity('productsupplierprice').")";
-	$sql .= " ORDER BY rowid DESC".$db->plimit(1);
+	$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "product_fournisseur_price";
+	$sql .= " WHERE fk_product = " . ((int) $fkProduct) . " AND fk_soc = " . ((int) $fkSoc) . " AND quantity <= 1";
+	$sql .= " AND entity IN (" . getEntity('productsupplierprice') . ")";
+	$sql .= " ORDER BY rowid DESC" . $db->plimit(1);
 	$resql = $db->query($sql);
 	$existingId = ($resql && ($obj = $db->fetch_object($resql))) ? (int) $obj->rowid : 0;
 
@@ -1725,13 +1925,13 @@ function auvorechnungsimport_update_buyprice($db, $user, $fkSoc, $fkProduct, $li
 	// all variants ("4233K") can't. Only take over the invoice's ref while it is
 	// free; otherwise keep the row's own ref, or use the product ref for a new row.
 	$isFree = function ($candidate) use ($db, $fkSoc, $existingId) {
-		$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."product_fournisseur_price";
-		$sql .= " WHERE fk_soc = ".((int) $fkSoc)." AND quantity = 1 AND ref_fourn = '".$db->escape($candidate)."'";
-		$sql .= " AND entity IN (".getEntity('productsupplierprice').")";
+		$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "product_fournisseur_price";
+		$sql .= " WHERE fk_soc = " . ((int) $fkSoc) . " AND quantity = 1 AND ref_fourn = '" . $db->escape($candidate) . "'";
+		$sql .= " AND entity IN (" . getEntity('productsupplierprice') . ")";
 		if ($existingId) {
-			$sql .= " AND rowid <> ".((int) $existingId);
+			$sql .= " AND rowid <> " . ((int) $existingId);
 		}
-		$resql = $db->query($sql.$db->plimit(1));
+		$resql = $db->query($sql . $db->plimit(1));
 		return $resql && !$db->fetch_object($resql);
 	};
 	if ($refFourn !== '' && !$isFree($refFourn)) {
@@ -1776,7 +1976,7 @@ function auvorechnungsimport_extract_pdftext_layout($pdfpath)
 	}
 	$output = array();
 	$stderrRedirect = (DIRECTORY_SEPARATOR === '\\') ? '2>NUL' : '2>/dev/null';
-	exec('pdftotext -layout -enc UTF-8 '.escapeshellarg($pdfpath).' - '.$stderrRedirect, $output, $retval);
+	exec('pdftotext -layout -enc UTF-8 ' . escapeshellarg($pdfpath) . ' - ' . $stderrRedirect, $output, $retval);
 	return $retval === 0 ? trim(implode("\n", $output)) : null;
 }
 
@@ -1850,7 +2050,9 @@ function auvorechnungsimport_parse_text_lines($text)
 
 	foreach ($rows as $row) {
 		if (trim($row) === '') {
-			$last = null;
+			// PDF text extraction often inserts empty rows between a priced item
+			// and its wrapped description/article-number line. Keep the candidate;
+			// the indentation and text checks below still decide whether to join it.
 			continue;
 		}
 		$tokens = preg_split('/\s+/u', trim($row));
@@ -1872,9 +2074,11 @@ function auvorechnungsimport_parse_text_lines($text)
 			// price (rightmost first) or between price and total.
 			foreach (array_reverse(array_slice($amountIdx, -3)) as $ti) {
 				$t = $nums[$ti]['value'];
-				foreach (array_reverse(array_filter($amountIdx, function ($i) use ($ti) {
-					return $i < $ti;
-				})) as $pi) {
+				foreach (
+					array_reverse(array_filter($amountIdx, function ($i) use ($ti) {
+						return $i < $ti;
+					})) as $pi
+				) {
 					$p = $nums[$pi]['value'];
 					$discount = 0;
 					foreach ($nums as $i => $n) {
@@ -1929,9 +2133,21 @@ function auvorechnungsimport_parse_text_lines($text)
 			// Continuation of the previous row: indented further than the row's own
 			// first column, no amounts, no "Label: value" (customs/HS code lines).
 			$indent = strlen($row) - strlen(ltrim($row));
-			if ($last !== null && $indent > $lastIndent && empty($amountIdx) && strpos($row, ':') === false
-				&& dol_strlen(trim($row)) <= 60 && preg_match('/\p{L}{2}/u', $row) && !preg_match($skip, $row)) {
-				$lines[$last]['label'] .= ' '.trim($row);
+			if (
+				$last !== null && $indent > $lastIndent && empty($amountIdx) && strpos($row, ':') === false
+				&& dol_strlen(trim($row)) <= 60 && preg_match('/\p{L}{2}/u', $row) && !preg_match($skip, $row)
+			) {
+				$continuation = trim($row);
+				// Some supplier layouts put the supplier's article number at the
+				// start of a wrapped description line, below the priced line.
+				if (
+					empty($lines[$last]['ref_supplier']) && preg_match('/^([\p{L}\d][\p{L}\d._\-\/]{2,29})\s+(.+)$/u', $continuation, $continuationMatch)
+					&& preg_match('/\d/u', $continuationMatch[1])
+				) {
+					$lines[$last]['ref_supplier'] = $continuationMatch[1];
+					$continuation = $continuationMatch[2];
+				}
+				$lines[$last]['label'] .= ' ' . $continuation;
 			} else {
 				$last = null;
 			}
@@ -1972,9 +2188,14 @@ function auvorechnungsimport_parse_text_lines($text)
 				$skipIdx[$first] = true;
 			}
 		}
+		// Nested position numbers such as "1.1" are metadata, not part of the
+		// description. This also keeps zero-priced bundle components parseable.
+		foreach ($tokens as $idx => $token) {
+			if ($idx < $match['p'] && preg_match('/^\d+(?:\.\d+)+$/', $token)) $skipIdx[$idx] = true;
+		}
 		$labelTokens = array();
 		for ($i = 0; $i < $end; $i++) {
-			if (isset($skipIdx[$i]) || preg_match('/^[-–*]$/u', $tokens[$i])) {
+			if (isset($skipIdx[$i]) || preg_match('/^(?:[-–*]|\[\s*-\s*\]|as-)$/iu', $tokens[$i])) {
 				continue;
 			}
 			$labelTokens[] = $tokens[$i];
@@ -2065,6 +2286,10 @@ function auvorechnungsimport_parse_vat_rates($text)
 function auvorechnungsimport_finish_text_lines($lines, $fields, $text)
 {
 	$smallBusiness = auvorechnungsimport_is_german_small_business_invoice($text);
+	// Some suppliers explicitly label both price columns as gross. Honor that
+	// unambiguous table heading even when extracted net totals or bundle rows
+	// prevent the arithmetic heuristic below from identifying the price base.
+	$grossColumnLabels = preg_match_all('/\(\s*(?:brutto|gross|ttc)\s*\)/iu', (string) $text);
 	if (empty($lines)) {
 		// A small-business invoice can contain one payable amount and no
 		// arithmetic line (qty x unit price). Treat it as a gross line at 0%.
@@ -2079,9 +2304,17 @@ function auvorechnungsimport_finish_text_lines($lines, $fields, $text)
 				}
 			}
 			$lines = array(array(
-				'source' => 'text', 'ref_supplier' => '', 'gtin' => '', 'label' => $label,
-				'qty' => 1.0, 'unit_code' => '', 'price' => (float) $gross,
-				'price_base' => 'TTC', 'vat_rate' => 0.0, 'vat_src_code' => 'K19', 'total' => (float) $gross,
+				'source' => 'text',
+				'ref_supplier' => '',
+				'gtin' => '',
+				'label' => $label,
+				'qty' => 1.0,
+				'unit_code' => '',
+				'price' => (float) $gross,
+				'price_base' => 'TTC',
+				'vat_rate' => 0.0,
+				'vat_src_code' => 'K19',
+				'total' => (float) $gross,
 			));
 			return array($lines, 'ok');
 		}
@@ -2091,6 +2324,11 @@ function auvorechnungsimport_finish_text_lines($lines, $fields, $text)
 		foreach ($lines as $i => $line) {
 			$lines[$i]['vat_rate'] = 0.0;
 			$lines[$i]['vat_src_code'] = 'K19';
+		}
+	}
+	if ($grossColumnLabels >= 2) {
+		foreach ($lines as $i => $line) {
+			$lines[$i]['price_base'] = 'TTC';
 		}
 	}
 	$rates = auvorechnungsimport_parse_vat_rates($text);
@@ -2199,7 +2437,7 @@ function auvorechnungsimport_tsv_to_layout($tsv)
 		foreach ($row['words'] as $w) {
 			$col = (int) round($w['left'] / $charWidth);
 			$len = mb_strlen($line, 'UTF-8');
-			$line .= ($len === 0 ? str_repeat(' ', $col) : str_repeat(' ', max(1, $col - $len))).$w['text'];
+			$line .= ($len === 0 ? str_repeat(' ', $col) : str_repeat(' ', max(1, $col - $len))) . $w['text'];
 		}
 		$out[] = $line;
 	}
@@ -2227,12 +2465,12 @@ function auvorechnungsimport_variant_combinations($db, $fkParent, $reset = false
 	}
 	$combos = array();
 	$sql = "SELECT c.fk_product_child, cv.fk_prod_attr, v.rowid as value_id, v.ref, v.value";
-	$sql .= " FROM ".MAIN_DB_PREFIX."product_attribute_combination as c";
-	$sql .= " INNER JOIN ".MAIN_DB_PREFIX."product_attribute_combination2val as cv ON cv.fk_prod_combination = c.rowid";
-	$sql .= " INNER JOIN ".MAIN_DB_PREFIX."product_attribute_value as v ON v.rowid = cv.fk_prod_attr_val";
-	$sql .= " INNER JOIN ".MAIN_DB_PREFIX."product as p ON p.rowid = c.fk_product_child";
-	$sql .= " WHERE c.fk_product_parent = ".((int) $fkParent);
-	$sql .= " AND c.entity IN (".getEntity('product').")";
+	$sql .= " FROM " . MAIN_DB_PREFIX . "product_attribute_combination as c";
+	$sql .= " INNER JOIN " . MAIN_DB_PREFIX . "product_attribute_combination2val as cv ON cv.fk_prod_combination = c.rowid";
+	$sql .= " INNER JOIN " . MAIN_DB_PREFIX . "product_attribute_value as v ON v.rowid = cv.fk_prod_attr_val";
+	$sql .= " INNER JOIN " . MAIN_DB_PREFIX . "product as p ON p.rowid = c.fk_product_child";
+	$sql .= " WHERE c.fk_product_parent = " . ((int) $fkParent);
+	$sql .= " AND c.entity IN (" . getEntity('product') . ")";
 	$resql = $db->query($sql);
 	while ($resql && ($obj = $db->fetch_object($resql))) {
 		$combos[(int) $obj->fk_product_child][(int) $obj->fk_prod_attr] = array('id' => (int) $obj->value_id, 'ref' => (string) $obj->ref, 'value' => (string) $obj->value);
@@ -2263,11 +2501,11 @@ function auvorechnungsimport_variant_attribute_values($db, $fkParent, $reset = f
 	}
 	$attrs = array();
 	$sql = "SELECT a.rowid as attr_id, a.label, a.position, v.rowid as value_id, v.ref, v.value";
-	$sql .= " FROM ".MAIN_DB_PREFIX."product_attribute as a";
-	$sql .= " INNER JOIN ".MAIN_DB_PREFIX."product_attribute_value as v ON v.fk_product_attribute = a.rowid";
-	$sql .= " WHERE a.rowid IN (SELECT DISTINCT cv.fk_prod_attr FROM ".MAIN_DB_PREFIX."product_attribute_combination as c";
-	$sql .= " INNER JOIN ".MAIN_DB_PREFIX."product_attribute_combination2val as cv ON cv.fk_prod_combination = c.rowid";
-	$sql .= " WHERE c.fk_product_parent = ".((int) $fkParent).")";
+	$sql .= " FROM " . MAIN_DB_PREFIX . "product_attribute as a";
+	$sql .= " INNER JOIN " . MAIN_DB_PREFIX . "product_attribute_value as v ON v.fk_product_attribute = a.rowid";
+	$sql .= " WHERE a.rowid IN (SELECT DISTINCT cv.fk_prod_attr FROM " . MAIN_DB_PREFIX . "product_attribute_combination as c";
+	$sql .= " INNER JOIN " . MAIN_DB_PREFIX . "product_attribute_combination2val as cv ON cv.fk_prod_combination = c.rowid";
+	$sql .= " WHERE c.fk_product_parent = " . ((int) $fkParent) . ")";
 	$sql .= " ORDER BY a.position, a.rowid, v.position, v.rowid";
 	$resql = $db->query($sql);
 	while ($resql && ($obj = $db->fetch_object($resql))) {
@@ -2302,10 +2540,10 @@ function auvorechnungsimport_find_variant_parent($db, $fkSoc, $ref)
 	}
 
 	if ($fkSoc > 0) {
-		$sql = "SELECT m.fk_product FROM ".MAIN_DB_PREFIX."auvorechnungsimport_linemap as m";
-		$sql .= " INNER JOIN ".MAIN_DB_PREFIX."product as p ON p.rowid = m.fk_product";
-		$sql .= " WHERE m.fk_soc = ".((int) $fkSoc)." AND m.key_type = 'parent' AND m.match_key = '".$db->escape($ref)."'";
-		$sql .= " AND m.entity IN (".getEntity('auvorechnungsimport').")";
+		$sql = "SELECT m.fk_product FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap as m";
+		$sql .= " INNER JOIN " . MAIN_DB_PREFIX . "product as p ON p.rowid = m.fk_product";
+		$sql .= " WHERE m.fk_soc = " . ((int) $fkSoc) . " AND m.key_type = 'parent' AND m.match_key = '" . $db->escape($ref) . "'";
+		$sql .= " AND m.entity IN (" . getEntity('auvorechnungsimport') . ")";
 		$resql = $db->query($sql);
 		if ($resql && ($obj = $db->fetch_object($resql))) {
 			return array((int) $obj->fk_product, 'learned');
@@ -2319,18 +2557,18 @@ function auvorechnungsimport_find_variant_parent($db, $fkSoc, $ref)
 	}
 	$core = $m[1];
 	$sql = "SELECT DISTINCT p.rowid, p.ref,";
-	$sql .= " (SELECT COUNT(*) FROM ".MAIN_DB_PREFIX."product_attribute_combination as c2";
-	$sql .= " INNER JOIN ".MAIN_DB_PREFIX."product_fournisseur_price as pfp ON pfp.fk_product = c2.fk_product_child";
-	$sql .= " WHERE c2.fk_product_parent = p.rowid AND pfp.fk_soc = ".((int) $fkSoc).") as nb_supplier";
-	$sql .= " FROM ".MAIN_DB_PREFIX."product as p";
-	$sql .= " INNER JOIN ".MAIN_DB_PREFIX."product_attribute_combination as c ON c.fk_product_parent = p.rowid";
-	$sql .= " WHERE p.ref LIKE '%".$db->escape($db->escapeforlike($core))."%'";
-	$sql .= " AND p.entity IN (".getEntity('product').")";
+	$sql .= " (SELECT COUNT(*) FROM " . MAIN_DB_PREFIX . "product_attribute_combination as c2";
+	$sql .= " INNER JOIN " . MAIN_DB_PREFIX . "product_fournisseur_price as pfp ON pfp.fk_product = c2.fk_product_child";
+	$sql .= " WHERE c2.fk_product_parent = p.rowid AND pfp.fk_soc = " . ((int) $fkSoc) . ") as nb_supplier";
+	$sql .= " FROM " . MAIN_DB_PREFIX . "product as p";
+	$sql .= " INNER JOIN " . MAIN_DB_PREFIX . "product_attribute_combination as c ON c.fk_product_parent = p.rowid";
+	$sql .= " WHERE p.ref LIKE '%" . $db->escape($db->escapeforlike($core)) . "%'";
+	$sql .= " AND p.entity IN (" . getEntity('product') . ")";
 	$resql = $db->query($sql);
 	$candidates = array();
 	$linked = array();
 	while ($resql && ($obj = $db->fetch_object($resql))) {
-		if (preg_match('/(?<!\d)'.preg_quote($core, '/').'(?!\d)/', $obj->ref)) {
+		if (preg_match('/(?<!\d)' . preg_quote($core, '/') . '(?!\d)/', $obj->ref)) {
 			$candidates[] = (int) $obj->rowid;
 			if ($obj->nb_supplier > 0) {
 				$linked[] = (int) $obj->rowid;
@@ -2498,8 +2736,8 @@ function auvorechnungsimport_pick_variant($db, $fkParent, $label)
  */
 function auvorechnungsimport_variant_parent_of($db, $fkProduct)
 {
-	$sql = "SELECT fk_product_parent FROM ".MAIN_DB_PREFIX."product_attribute_combination";
-	$sql .= " WHERE fk_product_child = ".((int) $fkProduct).$db->plimit(1);
+	$sql = "SELECT fk_product_parent FROM " . MAIN_DB_PREFIX . "product_attribute_combination";
+	$sql .= " WHERE fk_product_child = " . ((int) $fkProduct) . $db->plimit(1);
 	$resql = $db->query($sql);
 	return ($resql && ($obj = $db->fetch_object($resql))) ? (int) $obj->fk_product_parent : 0;
 }
@@ -2520,13 +2758,13 @@ function auvorechnungsimport_find_existing_invoice($db, $fkSoc, $refSupplier)
 	if ($fkSoc <= 0 || $refSupplier === '') {
 		return null;
 	}
-	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."facture_fourn";
-	$sql .= " WHERE fk_soc = ".((int) $fkSoc)." AND ref_supplier = '".$db->escape($refSupplier)."' AND entity = ".((int) $conf->entity);
-	$resql = $db->query($sql.$db->plimit(1));
+	$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "facture_fourn";
+	$sql .= " WHERE fk_soc = " . ((int) $fkSoc) . " AND ref_supplier = '" . $db->escape($refSupplier) . "' AND entity = " . ((int) $conf->entity);
+	$resql = $db->query($sql . $db->plimit(1));
 	if (!$resql || !($obj = $db->fetch_object($resql))) {
 		return null;
 	}
-	require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.facture.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/fourn/class/fournisseur.facture.class.php';
 	$invoice = new FactureFournisseur($db);
 	return $invoice->fetch((int) $obj->rowid) > 0 ? $invoice : null;
 }
@@ -2541,7 +2779,7 @@ function auvorechnungsimport_find_existing_invoice($db, $fkSoc, $refSupplier)
  */
 function auvorechnungsimport_invoice_docdir($invoice)
 {
-	return getMultidirOutput($invoice).'/'.get_exdir($invoice->id, 2, 0, 0, $invoice, 'invoice_supplier').dol_sanitizeFileName($invoice->ref);
+	return getMultidirOutput($invoice) . '/' . get_exdir($invoice->id, 2, 0, 0, $invoice, 'invoice_supplier') . dol_sanitizeFileName($invoice->ref);
 }
 
 /**
@@ -2581,8 +2819,8 @@ function auvorechnungsimport_linked_order_id($db, $invoice)
 function auvorechnungsimport_create_supplier_order($db, $user, $invoice, $priceBase, &$warnings)
 {
 	global $langs;
-	require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.commande.class.php';
-	require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/fourn/class/fournisseur.commande.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/product/class/product.class.php';
 
 	$warnings = array();
 
@@ -2674,24 +2912,24 @@ function auvorechnungsimport_create_supplier_order($db, $user, $invoice, $priceB
  */
 function auvorechnungsimport_attach_original($object, $invoice)
 {
-	require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+	require_once DOL_DOCUMENT_ROOT . '/core/lib/files.lib.php';
 	$srcfile = auvorechnungsimport_resolve_file($object->filepath);
 	if ($srcfile === false) {
 		return -1;
 	}
 	$destdir = auvorechnungsimport_invoice_docdir($invoice);
-	$destfile = $destdir.'/'.dol_sanitizeFileName($object->original_filename);
+	$destfile = $destdir . '/' . dol_sanitizeFileName($object->original_filename);
 	dol_mkdir($destdir);
 	// Files embedded in an e-invoice (BG-24: often the invoice as PDF,
 	// timesheets...) are attached too; an existing file is never replaced.
 	$inv = auvorechnungsimport_load_einvoice($srcfile);
 	foreach ($inv !== null ? $inv['attachments'] : array() as $att) {
 		$name = dol_sanitizeFileName($att['name']);
-		if ($att['content'] === '' || $name === '' || is_file($destdir.'/'.$name)) {
+		if ($att['content'] === '' || $name === '' || is_file($destdir . '/' . $name)) {
 			continue;
 		}
-		file_put_contents($destdir.'/'.$name, $att['content']);
-		@chmod($destdir.'/'.$name, octdec(getDolGlobalString('MAIN_UMASK', '0664')));
+		file_put_contents($destdir . '/' . $name, $att['content']);
+		@chmod($destdir . '/' . $name, octdec(getDolGlobalString('MAIN_UMASK', '0664')));
 	}
 	if (is_file($destfile)) {
 		return 0;
@@ -2720,7 +2958,7 @@ function auvorechnungsimport_attach_original($object, $invoice)
  */
 function auvorechnungsimport_plan_variant($db, $fkParent, $label)
 {
-	require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/product/class/product.class.php';
 	$r = auvorechnungsimport_resolve_variant($db, $fkParent, $label);
 	if ($r['child'] || empty($r['resolved'])) {
 		return null;
@@ -2791,8 +3029,8 @@ function auvorechnungsimport_plan_variant($db, $fkParent, $label)
 	}
 	return array(
 		'attrs' => $ordered,
-		'ref' => $parent->ref.'-'.implode('-', $refs),
-		'label' => $parent->label.' ('.implode(', ', $values).')',
+		'ref' => $parent->ref . '-' . implode('-', $refs),
+		'label' => $parent->label . ' (' . implode(', ', $values) . ')',
 	);
 }
 
@@ -2811,8 +3049,8 @@ function auvorechnungsimport_plan_variant($db, $fkParent, $label)
  */
 function auvorechnungsimport_create_variant($db, $user, $fkParent, $plan, &$errors)
 {
-	require_once DOL_DOCUMENT_ROOT.'/variants/class/ProductAttributeValue.class.php';
-	require_once DOL_DOCUMENT_ROOT.'/variants/class/ProductCombination.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/variants/class/ProductAttributeValue.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/variants/class/ProductCombination.class.php';
 	$errors = array();
 
 	$valueIds = array();
@@ -2837,8 +3075,8 @@ function auvorechnungsimport_create_variant($db, $user, $fkParent, $plan, &$erro
 		$errors[] = 'Parent product not found';
 		return -1;
 	}
-	if (isModEnabled('powervariantes') && is_readable(DOL_DOCUMENT_ROOT.'/custom/powervariantes/class/powervariantes.class.php')) {
-		require_once DOL_DOCUMENT_ROOT.'/custom/powervariantes/class/powervariantes.class.php';
+	if (isModEnabled('powervariantes') && is_readable(DOL_DOCUMENT_ROOT . '/custom/powervariantes/class/powervariantes.class.php')) {
+		require_once DOL_DOCUMENT_ROOT . '/custom/powervariantes/class/powervariantes.class.php';
 		$pv = new PowerVariantes($db);
 		$selected = array();
 		foreach ($valueIds as $fkAttr => $id) {
@@ -2886,7 +3124,7 @@ function auvorechnungsimport_create_variant($db, $user, $fkParent, $plan, &$erro
  */
 function auvorechnungsimport_queue_lockfile()
 {
-	return DOL_DATA_ROOT.'/auvorechnungsimport/temp/queue.lock';
+	return DOL_DATA_ROOT . '/auvorechnungsimport/temp/queue.lock';
 }
 
 /** Acquire the queue lock without waiting. Caller must release the handle. */
@@ -2944,8 +3182,8 @@ function auvorechnungsimport_queue_is_running()
 function auvorechnungsimport_process_queue($db, $maxItems = 2)
 {
 	global $conf, $user;
-	require_once dirname(__DIR__, 2).'/class/importedinvoice.class.php';
-	require_once DOL_DOCUMENT_ROOT.'/user/class/user.class.php';
+	require_once dirname(__DIR__, 2) . '/class/importedinvoice.class.php';
+	require_once DOL_DOCUMENT_ROOT . '/user/class/user.class.php';
 	$maxItems = max(1, (int) $maxItems);
 
 	$fh = auvorechnungsimport_queue_acquire_lock();
@@ -2954,9 +3192,9 @@ function auvorechnungsimport_process_queue($db, $maxItems = 2)
 	}
 
 	// Recover processing rows left behind by an interrupted previous Cron run.
-	$sql = "UPDATE ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice SET status = ".ImportedInvoice::STATUS_ERROR;
+	$sql = "UPDATE " . MAIN_DB_PREFIX . "auvorechnungsimport_importedinvoice SET status = " . ImportedInvoice::STATUS_ERROR;
 	$sql .= ", note_private = CONCAT(COALESCE(note_private, ''), 'Analyse durch Cronlauf unterbrochen. ')";
-	$sql .= " WHERE status = ".ImportedInvoice::STATUS_PROCESSING." AND entity = ".((int) $conf->entity);
+	$sql .= " WHERE status = " . ImportedInvoice::STATUS_PROCESSING . " AND entity = " . ((int) $conf->entity);
 	if (!$db->query($sql)) {
 		auvorechnungsimport_queue_release_lock($fh);
 		return -1;
@@ -2965,9 +3203,9 @@ function auvorechnungsimport_process_queue($db, $maxItems = 2)
 	$done = 0;
 	$users = array();
 	while ($done < $maxItems) {
-		$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
-		$sql .= " WHERE status = ".ImportedInvoice::STATUS_QUEUED." AND entity = ".((int) $conf->entity);
-		$sql .= " ORDER BY rowid".$db->plimit(1);
+		$sql = "SELECT rowid FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_importedinvoice";
+		$sql .= " WHERE status = " . ImportedInvoice::STATUS_QUEUED . " AND entity = " . ((int) $conf->entity);
+		$sql .= " ORDER BY rowid" . $db->plimit(1);
 		$resql = $db->query($sql);
 		$obj = $resql ? $db->fetch_object($resql) : null;
 		if (!$obj) {
@@ -2986,10 +3224,10 @@ function auvorechnungsimport_process_queue($db, $maxItems = 2)
 		}
 		$runAs = $users[$object->fk_user_creat];
 		if (empty($runAs->id)) {
-			dol_syslog('AuvoRechnungsimport queue: import '.$object->ref.' has no usable creator user', LOG_ERR);
+			dol_syslog('AuvoRechnungsimport queue: import ' . $object->ref . ' has no usable creator user', LOG_ERR);
 			if (!empty($user->id)) {
 				$object->status = ImportedInvoice::STATUS_ERROR;
-				$object->note_private = trim((string) $object->note_private."\nAnalyse abgebrochen: Erstellerkonto nicht gefunden.");
+				$object->note_private = trim((string) $object->note_private . "\nAnalyse abgebrochen: Erstellerkonto nicht gefunden.");
 				$object->update($user, 1);
 			}
 			$done++;
@@ -2998,7 +3236,7 @@ function auvorechnungsimport_process_queue($db, $maxItems = 2)
 
 		$object->status = ImportedInvoice::STATUS_PROCESSING;
 		if ($object->update($runAs, 1) <= 0) {
-			dol_syslog('AuvoRechnungsimport queue: could not claim '.$object->ref, LOG_ERR);
+			dol_syslog('AuvoRechnungsimport queue: could not claim ' . $object->ref, LOG_ERR);
 			break;
 		}
 
@@ -3009,16 +3247,16 @@ function auvorechnungsimport_process_queue($db, $maxItems = 2)
 			}
 			auvorechnungsimport_process_file($db, $object, $file, $runAs);
 		} catch (Throwable $e) {
-			$errorDetail = get_class($e).': '.$e->getMessage();
-			dol_syslog('AuvoRechnungsimport queue: '.$object->ref.': '.$errorDetail, LOG_ERR);
+			$errorDetail = get_class($e) . ': ' . $e->getMessage();
+			dol_syslog('AuvoRechnungsimport queue: ' . $object->ref . ': ' . $errorDetail, LOG_ERR);
 			$object->status = ImportedInvoice::STATUS_ERROR;
-			$object->note_private = trim((string) $object->note_private."\n[Analysefehler] ".$errorDetail);
+			$object->note_private = trim((string) $object->note_private . "\n[Analysefehler] " . $errorDetail);
 		}
 		if ((int) $object->status === ImportedInvoice::STATUS_ERROR && $object->getAnalysisError() === '') {
-			$object->note_private = trim((string) $object->note_private."\n[Analysefehler] Keine verwertbaren Rechnungsdaten erkannt. Bitte prüfen Sie Dateiformat, PDF-Textebene und OCR-Konfiguration.");
+			$object->note_private = trim((string) $object->note_private . "\n[Analysefehler] Keine verwertbaren Rechnungsdaten erkannt. Bitte prüfen Sie Dateiformat, PDF-Textebene und OCR-Konfiguration.");
 		}
 		if ($object->update($runAs, 1) <= 0) {
-			dol_syslog('AuvoRechnungsimport queue: could not save result '.$object->ref, LOG_ERR);
+			dol_syslog('AuvoRechnungsimport queue: could not save result ' . $object->ref, LOG_ERR);
 		}
 		$done++;
 	}
@@ -3035,14 +3273,15 @@ function auvorechnungsimport_process_queue($db, $maxItems = 2)
  * @param int $afterId Current record; 0 = the first one
  * @return int Record id, 0 if none left
  */
-function auvorechnungsimport_next_to_review($db, $afterId)
+function auvorechnungsimport_next_to_review($db, $afterId, $spamOnly = false)
 {
-	require_once dirname(__DIR__, 2).'/class/importedinvoice.class.php';
-	$base = "SELECT rowid FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
-	$base .= " WHERE status IN (".ImportedInvoice::STATUS_NEEDS_REVIEW.", ".ImportedInvoice::STATUS_MATCHED.")";
-	$base .= " AND entity IN (".getEntity('importedinvoice').") AND rowid <> ".((int) $afterId);
-	foreach (array(" AND rowid > ".((int) $afterId), "") as $after) {
-		$resql = $db->query($base.$after." ORDER BY rowid".$db->plimit(1));
+	require_once dirname(__DIR__, 2) . '/class/importedinvoice.class.php';
+	$base = "SELECT rowid FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_importedinvoice";
+	$statuses = $spamOnly ? array(ImportedInvoice::STATUS_SPAM_REVIEW) : array(ImportedInvoice::STATUS_NEEDS_REVIEW, ImportedInvoice::STATUS_MATCHED);
+	$base .= " WHERE status IN (" . implode(',', array_map('intval', $statuses)) . ")";
+	$base .= " AND entity IN (" . getEntity('importedinvoice') . ") AND rowid <> " . ((int) $afterId);
+	foreach (array(" AND rowid > " . ((int) $afterId), "") as $after) {
+		$resql = $db->query($base . $after . " ORDER BY rowid" . $db->plimit(1));
 		if ($resql && ($obj = $db->fetch_object($resql))) {
 			return (int) $obj->rowid;
 		}
@@ -3086,10 +3325,10 @@ function auvorechnungsimport_line_mode($db, $fkSoc, $line, $hasProduct)
 {
 	$labelKey = auvorechnungsimport_normalize_line_label($line['label'] ?? '');
 	if ($fkSoc > 0 && $labelKey !== '') {
-		$sql = "SELECT key_type FROM ".MAIN_DB_PREFIX."auvorechnungsimport_linemap";
-		$sql .= " WHERE fk_soc = ".((int) $fkSoc)." AND key_type IN ('mode_cost', 'mode_skip')";
-		$sql .= " AND match_key = '".$db->escape($labelKey)."' AND entity IN (".getEntity('auvorechnungsimport').")";
-		$resql = $db->query($sql.$db->plimit(1));
+		$sql = "SELECT key_type FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap";
+		$sql .= " WHERE fk_soc = " . ((int) $fkSoc) . " AND key_type IN ('mode_cost', 'mode_skip')";
+		$sql .= " AND match_key = '" . $db->escape($labelKey) . "' AND entity IN (" . getEntity('auvorechnungsimport') . ")";
+		$resql = $db->query($sql . $db->plimit(1));
 		if ($resql && ($obj = $db->fetch_object($resql))) {
 			return array(substr($obj->key_type, 5), 'learned');
 		}
@@ -3101,7 +3340,7 @@ function auvorechnungsimport_line_mode($db, $fkSoc, $line, $hasProduct)
 	$keywords = auvorechnungsimport_line_mode_keywords();
 	foreach (array('skip', 'cost') as $mode) {
 		foreach ($keywords[$mode] as $keyword) {
-			if (preg_match('/(?<![\p{L}\d])'.preg_quote($keyword, '/').'/iu', (string) ($line['label'] ?? ''))) {
+			if (preg_match('/(?<![\p{L}\d])' . preg_quote($keyword, '/') . '/iu', (string) ($line['label'] ?? ''))) {
 				return array($mode, 'keyword');
 			}
 		}
@@ -3128,15 +3367,15 @@ function auvorechnungsimport_learn_line_mode($db, $user, $fkSoc, $line, $mode)
 	if ($fkSoc <= 0 || $labelKey === '') {
 		return 0;
 	}
-	$where = " WHERE entity = ".((int) $conf->entity)." AND fk_soc = ".((int) $fkSoc);
-	$where .= " AND key_type IN ('mode_cost', 'mode_skip') AND match_key = '".$db->escape($labelKey)."'";
-	if (!$db->query("DELETE FROM ".MAIN_DB_PREFIX."auvorechnungsimport_linemap".$where)) {
+	$where = " WHERE entity = " . ((int) $conf->entity) . " AND fk_soc = " . ((int) $fkSoc);
+	$where .= " AND key_type IN ('mode_cost', 'mode_skip') AND match_key = '" . $db->escape($labelKey) . "'";
+	if (!$db->query("DELETE FROM " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap" . $where)) {
 		return -1;
 	}
 	if ($mode === 'cost' || $mode === 'skip') {
-		$sql = "INSERT INTO ".MAIN_DB_PREFIX."auvorechnungsimport_linemap";
+		$sql = "INSERT INTO " . MAIN_DB_PREFIX . "auvorechnungsimport_linemap";
 		$sql .= " (entity, fk_soc, key_type, match_key, fk_product, nb_used, date_creation, fk_user_creat)";
-		$sql .= " VALUES (".((int) $conf->entity).", ".((int) $fkSoc).", 'mode_".$mode."', '".$db->escape($labelKey)."', 0, 1, '".$db->idate(dol_now())."', ".((int) $user->id).")";
+		$sql .= " VALUES (" . ((int) $conf->entity) . ", " . ((int) $fkSoc) . ", 'mode_" . $mode . "', '" . $db->escape($labelKey) . "', 0, 1, '" . $db->idate(dol_now()) . "', " . ((int) $user->id) . ")";
 		if (!$db->query($sql)) {
 			return -1;
 		}
