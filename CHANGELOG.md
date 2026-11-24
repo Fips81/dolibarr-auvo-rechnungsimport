@@ -24,6 +24,12 @@ Notable changes to AuVo Rechnungsimport are documented here.
   linking to the earlier import and, when available, its booked supplier invoice.
 - When ECM is enabled, use its MD5 content index to locate candidate files and
   confirm matches with SHA-256 and the stored file before classifying duplicates.
+- Process a manually entered fallback invoice line through the same booking path
+  as detected lines, including localized number formats and zero-priced lines.
+- Keep the original-file preview available from the immutable BlockedLog Base64
+  record after deleting the import record and its working file.
+- Ensure import-deletion events use a BlockedLog relation code within the Core
+  field limit, so the audit event can be recorded before deletion.
 
 ### Upgrade notes
 
