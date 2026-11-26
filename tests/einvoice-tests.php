@@ -58,6 +58,9 @@ function lines_sum($fields)
 check(auvorechnungsimport_parse_einvoice('<foo/>') === null, 'unknown XML is rejected');
 check(auvorechnungsimport_parse_einvoice('not xml') === null, 'garbage is rejected');
 check(auvorechnungsimport_parse_einvoice('') === null, 'empty input is rejected');
+// this verifies the DTD/entity guard.
+$dtdInvoice = str_replace('<Invoice ', '<!DOCTYPE Invoice [<!ENTITY harmless "expanded">]>'."\n".'<Invoice ', file_get_contents(__DIR__.'/fixtures/xrechnung-ubl-standard.xml'));
+check(auvorechnungsimport_parse_einvoice($dtdInvoice) === null, 'DTD and entity declarations are rejected');
 
 // UBL invoice: allowance, Skonto, two VAT rates
 $inv = load('xrechnung-ubl-standard.xml');
