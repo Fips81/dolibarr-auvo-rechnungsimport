@@ -60,6 +60,8 @@ class modAuvoRechnungsimport extends DolibarrModules
 			array('AUVORECHNUNGSIMPORT_OCR_LANGS', 'chaine', 'deu+fra+eng', 'Sprachen fuer Tesseract-OCR (tesseract --list-langs fuer verfuegbare Codes)', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_OCR_MAXPAGES', 'int', '5', 'Maximale Seitenzahl fuer OCR bei gescannten PDFs (Positionen koennen ueber mehrere Seiten gehen)', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER', 'int', '0', 'Unbekannten Lieferanten automatisch anlegen statt manuell nachzufragen', 1, 'current', 0),
+			array('AUVORECHNUNGSIMPORT_SPAM_HEADER', 'chaine', '', 'Optionaler Mail-Header zur manuellen Spam-Pruefung', 1, 'current', 0),
+			array('AUVORECHNUNGSIMPORT_SPAM_VALUE', 'chaine', '', 'Erwarteter Wert des Spam-Headers', 1, 'current', 0),
 		);
 
 		if (!isset($conf->auvorechnungsimport) || !isset($conf->auvorechnungsimport->enabled)) {
@@ -106,8 +108,10 @@ class modAuvoRechnungsimport extends DolibarrModules
 			'auvorechnungsimport_upload' => array('AuvoRechnungsimportMenuUpload', $list.'?mode=upload', 1101),
 			'auvorechnungsimport_review' => array('AuvoRechnungsimportFilterToReview', $list.'?search_status=1,3', 1102),
 			'auvorechnungsimport_queued' => array('AuvoRechnungsimportStatusQueued', $list.'?search_status=4,0', 1103),
-			'auvorechnungsimport_error' => array('AuvoRechnungsimportStatusError', $list.'?search_status=9', 1104),
-			'auvorechnungsimport_imported' => array('AuvoRechnungsimportStatusImported', $list.'?search_status=2', 1105),
+			'auvorechnungsimport_spam' => array('AuvoRechnungsimportStatusSpamReview', $list.'?search_status=5', 1104),
+			'auvorechnungsimport_irrelevant' => array('AuvoRechnungsimportMenuIrrelevant', $list.'?search_status=6,7', 1105),
+			'auvorechnungsimport_error' => array('AuvoRechnungsimportStatusError', $list.'?search_status=9', 1106),
+			'auvorechnungsimport_imported' => array('AuvoRechnungsimportStatusImported', $list.'?search_status=2', 1107),
 		);
 		foreach ($left as $leftmenu => list($label, $url, $position)) {
 			$this->menu[] = array(

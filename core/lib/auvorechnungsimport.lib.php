@@ -2169,11 +2169,11 @@ function auvorechnungsimport_process_queue($db)
  * @param int $afterId Current record; 0 = the first one
  * @return int Record id, 0 if none left
  */
-function auvorechnungsimport_next_to_review($db, $afterId)
+function auvorechnungsimport_next_to_review($db, $afterId, $spamOnly = false)
 {
 	require_once dirname(__DIR__, 2).'/class/importedinvoice.class.php';
 	$base = "SELECT rowid FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
-	$base .= " WHERE status IN (".ImportedInvoice::STATUS_NEEDS_REVIEW.", ".ImportedInvoice::STATUS_MATCHED.")";
+	$base .= $spamOnly ? " WHERE status = ".ImportedInvoice::STATUS_SPAM_REVIEW : " WHERE status IN (".ImportedInvoice::STATUS_NEEDS_REVIEW.", ".ImportedInvoice::STATUS_MATCHED.")";
 	$base .= " AND entity IN (".getEntity('importedinvoice').") AND rowid <> ".((int) $afterId);
 	foreach (array(" AND rowid > ".((int) $afterId), "") as $after) {
 		$resql = $db->query($base.$after." ORDER BY rowid".$db->plimit(1));

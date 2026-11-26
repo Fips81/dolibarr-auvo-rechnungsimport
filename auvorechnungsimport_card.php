@@ -58,6 +58,11 @@ $canCreateOrder = isModEnabled('supplier_order') && $user->hasRight('fournisseur
 $canCreateBank = $user->hasRight('societe', 'creer');   // also covers creating a supplier
 $canCreateProduct = isModEnabled('variants') && $user->hasRight('produit', 'creer');
 
+if (in_array((int) $object->status, array(ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)
+	&& in_array($action, array('createinvoice', 'reprocess', 'confirm_delete', 'attachpdf'), true)) {
+	accessforbidden('Spam and duplicate imports are not available for invoice processing');
+}
+
 /**
  * Create the supplier order for goods receipt and report the outcome.
  *
@@ -316,7 +321,7 @@ if (in_array($action, array('createorder', 'attachpdf'), true) && $object->statu
 	exit;
 }
 
-if ($action == 'reprocess' && $user->hasRight('auvorechnungsimport', 'imports', 'write') && $object->status != ImportedInvoice::STATUS_IMPORTED) {
+if ($action == 'reprocess' && $user->hasRight('auvorechnungsimport', 'imports', 'write') && !in_array((int) $object->status, array(ImportedInvoice::STATUS_IMPORTED, ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) {
 	if (!GETPOSTISSET('token') || GETPOST('token') !== newToken()) {
 		accessforbidden('CSRF');
 	}
@@ -338,27 +343,89 @@ if ($action == 'reprocess' && $user->hasRight('auvorechnungsimport', 'imports', 
 	}
 }
 
-if ($action == 'confirm_delete' && GETPOST('confirm') == 'yes' && $user->hasRight('auvorechnungsimport', 'imports', 'write')) {
+if ($action === 'confirmspam' && $user->hasRight('auvorechnungsimport', 'imports', 'write')) {
+	if (!GETPOSTISSET('token') || GETPOST('token') !== newToken()) accessforbidden('CSRF');
+	if ((int) $object->status !== ImportedInvoice::STATUS_SPAM_REVIEW) accessforbidden('Invalid import status');
+	$confirmedAt = dol_now();
+	$extracted['spam_confirmation'] = array('date' => $confirmedAt, 'user_id' => (int) $user->id);
+	$object->extracted_data = json_encode($extracted, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+	$object->status = ImportedInvoice::STATUS_SPAM_CONFIRMED;
+	if ($object->update($user) > 0) {
+		setEventMessages($langs->trans('AuvoRechnungsimportSpamConfirmed'), null, 'mesgs');
+		header('Location: '.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1).'?search_status=6,7');
+		exit;
+	}
+	setEventMessages($langs->trans('AuvoRechnungsimportSpamConfirmFailed'), $object->errors, 'errors');
+}
+
+if ($action === 'releasespam' && $user->hasRight('auvorechnungsimport', 'imports', 'write')) {
+	if (!GETPOSTISSET('token') || GETPOST('token') !== newToken()) accessforbidden('CSRF');
+	if ((int) $object->status !== ImportedInvoice::STATUS_SPAM_REVIEW) accessforbidden('Invalid import status');
+	$object->status = ImportedInvoice::STATUS_QUEUED;
+	if ($object->update($user) > 0) {
+		if (!auvorechnungsimport_queue_start()) {
+			setEventMessages($langs->trans('AuvoRechnungsimportQueueStartFailed'), null, 'warnings');
+		} else {
+			setEventMessages($langs->trans('AuvoRechnungsimportSpamReleased'), null, 'mesgs');
+		}
+		header('Location: '.$_SERVER['PHP_SELF'].'?id='.$object->id);
+		exit;
+	}
+	setEventMessages($langs->trans('AuvoRechnungsimportSpamReleaseFailed'), $object->errors, 'errors');
+}
+
+if ($action === 'confirmduplicate' && $user->hasRight('auvorechnungsimport', 'imports', 'write')) {
+	if (!GETPOSTISSET('token') || GETPOST('token') !== newToken()) accessforbidden('CSRF');
+	if (!in_array((int) $object->status, array(ImportedInvoice::STATUS_NEEDS_REVIEW, ImportedInvoice::STATUS_MATCHED, ImportedInvoice::STATUS_ERROR), true)) accessforbidden('Invalid import status');
+	$duplicateId = GETPOSTINT('duplicate_id');
+	$duplicate = null;
+	foreach (auvorechnungsimport_find_duplicate_imports($db, $object, $extracted) as $candidate) {
+		if ((int) $candidate['id'] === $duplicateId) {
+			$duplicate = $candidate;
+			break;
+		}
+	}
+	if (!$duplicate) {
+		setEventMessages($langs->trans('AuvoRechnungsimportDuplicateConfirmFailed'), null, 'errors');
+		header('Location: '.$_SERVER['PHP_SELF'].'?id='.$object->id);
+		exit;
+	}
+	$confirmedAt = dol_now();
+	$extracted['duplicate_confirmation'] = array(
+		'reason' => 'invoice_number_and_amount',
+		'duplicate_of_import_id' => (int) $duplicate['id'],
+		'duplicate_of_import_ref' => (string) $duplicate['ref'],
+		'date' => $confirmedAt,
+		'user_id' => (int) $user->id,
+	);
+	$object->extracted_data = json_encode($extracted, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+	$object->status = ImportedInvoice::STATUS_DUPLICATE;
+	if ($object->update($user) > 0) {
+		setEventMessages($langs->trans('AuvoRechnungsimportDuplicateConfirmed'), null, 'mesgs');
+		header('Location: '.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1).'?search_status=6,7');
+		exit;
+	}
+	setEventMessages($langs->trans('AuvoRechnungsimportDuplicateConfirmFailed'), $object->errors, 'errors');
+}
+
+if ($action == 'confirm_delete' && GETPOST('confirm') == 'yes' && $user->hasRight('auvorechnungsimport', 'imports', 'write') && !in_array((int) $object->status, array(ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) {
 	if (!GETPOSTISSET('token') || GETPOST('token') !== newToken()) {
 		accessforbidden('CSRF');
 	}
 	$filetoremove = DOL_DATA_ROOT.'/auvorechnungsimport/'.$object->filepath;
-	if (is_file($filetoremove)) {
-		dol_delete_file($filetoremove, 1);
-	}
-	dol_delete_dir(dirname($filetoremove), 1);
 	$result = $object->delete($user);
 	if ($result > 0) {
+		if (is_file($filetoremove)) dol_delete_file($filetoremove, 1);
+		dol_delete_dir(dirname($filetoremove), 1);
 		header('Location: '.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1));
 		exit;
-	} else {
-		setEventMessages($langs->trans('AuvoRechnungsimportErrDelete'), $object->errors, 'errors');
 	}
+	setEventMessages($langs->trans('AuvoRechnungsimportErrDelete'), $object->errors, 'errors');
 }
 
 llxHeader('', $object->ref);
 
-if ($action == 'delete') {
+if ($action == 'delete' && !in_array((int) $object->status, array(ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) {
 	print $form->formconfirm($_SERVER['PHP_SELF'].'?id='.$object->id, $langs->trans('AuvoRechnungsimportDeleteTitle'), $langs->trans('AuvoRechnungsimportDeleteConfirm'), 'confirm_delete', '', '', 1);
 }
 
@@ -366,6 +433,8 @@ if ($action == 'delete') {
 $backStatus = array(
 	ImportedInvoice::STATUS_NEEDS_REVIEW => '1,3', ImportedInvoice::STATUS_MATCHED => '1,3',
 	ImportedInvoice::STATUS_QUEUED => '4,0', ImportedInvoice::STATUS_PROCESSING => '4,0',
+	ImportedInvoice::STATUS_SPAM_REVIEW => '5',
+	ImportedInvoice::STATUS_DUPLICATE => '6,7', ImportedInvoice::STATUS_SPAM_CONFIRMED => '6,7',
 	ImportedInvoice::STATUS_ERROR => '9', ImportedInvoice::STATUS_IMPORTED => '2',
 );
 $backUrl = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1).(isset($backStatus[(int) $object->status]) ? '?search_status='.$backStatus[(int) $object->status] : '');
@@ -374,12 +443,18 @@ print '<a href="'.$backUrl.'">'.img_picto('', 'back', 'class="paddingrightonly"'
 
 $morehtmlright = '';
 if ($user->hasRight('auvorechnungsimport', 'imports', 'write')) {
-	if ($object->status != ImportedInvoice::STATUS_IMPORTED) {
+	if ((int) $object->status === ImportedInvoice::STATUS_SPAM_REVIEW) {
+		$morehtmlright .= dolGetButtonAction('', $langs->trans('AuvoRechnungsimportConfirmSpam'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirmspam&token='.newToken(), '', 1, array('confirm' => array('content' => $langs->trans('AuvoRechnungsimportConfirmSpamPrompt'))));
+		$morehtmlright .= dolGetButtonAction('', $langs->trans('AuvoRechnungsimportSpamRelease'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=releasespam&token='.newToken(), '', 1, array('confirm' => array('content' => $langs->trans('AuvoRechnungsimportSpamReleaseConfirm'))));
+	} elseif (!in_array((int) $object->status, array(ImportedInvoice::STATUS_IMPORTED, ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) {
 		$morehtmlright .= dolGetButtonAction('', $langs->trans('AuvoRechnungsimportReprocessBtn'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=reprocess&token='.newToken(), '', 1);
 	}
-	$morehtmlright .= dolGetButtonAction('', $langs->trans('Delete'), 'delete', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=delete', '', 1);
+	if (!in_array((int) $object->status, array(ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) {
+		$morehtmlright .= dolGetButtonAction('', $langs->trans('Delete'), 'delete', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=delete', '', 1);
+	}
 }
-$nextId = auvorechnungsimport_next_to_review($db, $object->id);
+$isSpamReview = (int) $object->status === ImportedInvoice::STATUS_SPAM_REVIEW;
+$nextId = auvorechnungsimport_next_to_review($db, $object->id, $isSpamReview);
 if ($nextId) {
 	$morehtmlright .= dolGetButtonAction('', $langs->trans('AuvoRechnungsimportNextBtn'), 'default', $_SERVER['PHP_SELF'].'?id='.$nextId, '', 1);
 }
@@ -474,6 +549,19 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 } elseif (in_array((int) $object->status, array(ImportedInvoice::STATUS_QUEUED, ImportedInvoice::STATUS_PROCESSING), true)) {
 	print '<div class="info"><span class="fas fa-spinner fa-spin paddingright"></span>'.$langs->trans('AuvoRechnungsimportBeingAnalysed').'</div>';
 	print '<script>setTimeout(function () { location.reload(); }, 5000);</script>';
+	} elseif ((int) $object->status === ImportedInvoice::STATUS_SPAM_REVIEW) {
+	$spamDetection = is_array($extracted['spam_detection'] ?? null) ? $extracted['spam_detection'] : array();
+	print '<div class="warning">'.$langs->trans('AuvoRechnungsimportSpamHeld', dol_escape_htmltag((string) ($spamDetection['header'] ?? '')),
+		dol_escape_htmltag((string) ($spamDetection['value'] ?? ''))).'</div>';
+	} elseif ((int) $object->status === ImportedInvoice::STATUS_SPAM_CONFIRMED) {
+	print '<div class="info">'.$langs->trans('AuvoRechnungsimportSpamConfirmed').'</div>';
+	} elseif ((int) $object->status === ImportedInvoice::STATUS_DUPLICATE) {
+	$duplicateConfirmation = is_array($extracted['duplicate_confirmation'] ?? null) ? $extracted['duplicate_confirmation'] : array();
+	print '<div class="warning">'.$langs->trans('AuvoRechnungsimportDuplicateConfirmed').'</div>';
+	if (!empty($duplicateConfirmation['duplicate_of_import_id'])) {
+		$duplicateTarget = new ImportedInvoice($db);
+		if ($duplicateTarget->fetch((int) $duplicateConfirmation['duplicate_of_import_id']) > 0) print '<p>'.$langs->trans('AuvoRechnungsimportDuplicateOf').' '.$duplicateTarget->getNomUrl(1).'</p>';
+	}
 } elseif ($user->hasRight('auvorechnungsimport', 'imports', 'write')) {
 	print load_fiche_titre($langs->trans('AuvoRechnungsimportReviewTitle'), '', '');
 	if (!empty($extracted['is_credit_note'])) {
@@ -488,17 +576,23 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 			$hints[] = call_user_func_array(array($langs, 'transnoentities'), array_merge(array('AuvoRechnungsimportCheck'.$h['key']), $h['args']));
 		}
 	}
-	$dupLinks = array();
-	foreach (auvorechnungsimport_find_duplicate_imports($db, $object, $extracted) as $d) {
-		$dupLinks[] = '<a href="'.$_SERVER['PHP_SELF'].'?id='.$d['id'].'">'.dol_escape_htmltag($d['ref']).' ('.dol_escape_htmltag($d['filename']).')</a>';
-	}
-	if (!empty($hints) || !empty($dupLinks)) {
+	$duplicateCandidates = auvorechnungsimport_find_duplicate_imports($db, $object, $extracted);
+	if (!empty($hints) || !empty($duplicateCandidates)) {
 		print '<div class="warning"><b>'.$langs->trans('AuvoRechnungsimportCheckTitle').'</b><ul class="nomargintop nomarginbottom">';
 		foreach ($hints as $h) {
 			print '<li>'.dol_escape_htmltag($h).'</li>';
 		}
-		if (!empty($dupLinks)) {
-			print '<li>'.$langs->trans('AuvoRechnungsimportCheckDuplicate', implode(', ', $dupLinks)).'</li>';
+		foreach ($duplicateCandidates as $duplicateCandidate) {
+			$duplicateLink = '<a href="'.$_SERVER['PHP_SELF'].'?id='.(int) $duplicateCandidate['id'].'">'.dol_escape_htmltag($duplicateCandidate['ref']).' ('.dol_escape_htmltag($duplicateCandidate['filename']).')</a>';
+			print '<li>'.$langs->trans('AuvoRechnungsimportCheckDuplicate', $duplicateLink);
+			if ($user->hasRight('auvorechnungsimport', 'imports', 'write') && in_array((int) $object->status, array(ImportedInvoice::STATUS_NEEDS_REVIEW, ImportedInvoice::STATUS_MATCHED, ImportedInvoice::STATUS_ERROR), true)) {
+				print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'?id='.(int) $object->id.'" class="inline-block" onsubmit="return confirm(\''.dol_escape_js($langs->transnoentitiesnoconv('AuvoRechnungsimportConfirmDuplicatePrompt')).'\');">';
+				print '<input type="hidden" name="token" value="'.newToken().'">';
+				print '<input type="hidden" name="action" value="confirmduplicate">';
+				print '<input type="hidden" name="duplicate_id" value="'.(int) $duplicateCandidate['id'].'">';
+				print '<button type="submit" class="button smallpaddingimp">'.$langs->trans('AuvoRechnungsimportConfirmDuplicate').'</button></form>';
+			}
+			print '</li>';
 		}
 		print '</ul></div>';
 	}

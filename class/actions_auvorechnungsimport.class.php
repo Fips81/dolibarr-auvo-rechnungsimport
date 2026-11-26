@@ -47,6 +47,13 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 		}
 
 		$attachments = isset($parameters['attachments']) && is_array($parameters['attachments']) ? $parameters['attachments'] : array();
+		$spamHeaderName = trim(getDolGlobalString('AUVORECHNUNGSIMPORT_SPAM_HEADER'));
+		$spamHeaderValue = trim(getDolGlobalString('AUVORECHNUNGSIMPORT_SPAM_VALUE'));
+		$spamFlagged = false;
+		if ($spamHeaderName !== '' && $spamHeaderValue !== '' && !empty($parameters['header'])) {
+			$headerPattern = '/^'.preg_quote($spamHeaderName, '/').':\\s*'.preg_quote($spamHeaderValue, '/').'\\s*$/im';
+			$spamFlagged = (bool) preg_match($headerPattern, (string) $parameters['header']);
+		}
 		$files = array();
 		$readErrors = array();
 		foreach ($attachments as $key => $attachment) {
@@ -109,7 +116,10 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 			$import->original_filename = $file['name'];
 			$import->source = 'emailcollector';
 			$import->filepath = '';
-			$import->status = ImportedInvoice::STATUS_QUEUED;
+			$import->status = $spamFlagged ? ImportedInvoice::STATUS_SPAM_REVIEW : ImportedInvoice::STATUS_QUEUED;
+			if ($spamFlagged) {
+				$import->extracted_data = json_encode(array('spam_detection' => array('header' => $spamHeaderName, 'value' => $spamHeaderValue)));
+			}
 
 			if ($import->create($user) <= 0) {
 				$this->removeEmailCollectorFiles($writtenFiles);
@@ -182,8 +192,12 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 			}
 		}
 
-		$this->scheduleEmailCollectorQueueStart(count($files));
-		$this->appendEmailCollectorLog($object, $langs->trans('AuvoRechnungsimportEmailQueued', count($files)));
+		if ($spamFlagged) {
+			$this->appendEmailCollectorLog($object, $langs->trans('AuvoRechnungsimportEmailSpamHeld', count($files)));
+		} else {
+			$this->scheduleEmailCollectorQueueStart(count($files));
+			$this->appendEmailCollectorLog($object, $langs->trans('AuvoRechnungsimportEmailQueued', count($files)));
+		}
 		return 1;
 	}
 

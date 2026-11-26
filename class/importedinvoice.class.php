@@ -28,6 +28,9 @@ class ImportedInvoice extends CommonObject
 	const STATUS_MATCHED = 3;
 	// Uploaded, waiting for the background analysis (scripts/process_queue.php)
 	const STATUS_QUEUED = 4;
+	const STATUS_SPAM_REVIEW = 5;
+	const STATUS_DUPLICATE = 6;
+	const STATUS_SPAM_CONFIRMED = 7;
 	const STATUS_ERROR = 9;
 
 	public $fields = array(
@@ -40,6 +43,9 @@ class ImportedInvoice extends CommonObject
 		'fk_user_modif' => array('type' => 'integer:User:user/class/user.class.php', 'label' => 'UserModif', 'enabled' => 1, 'position' => 35, 'notnull' => 0, 'visible' => 0),
 		'status' => array('type' => 'integer', 'label' => 'Status', 'enabled' => 1, 'position' => 40, 'notnull' => 1, 'default' => '0', 'visible' => 1, 'arrayofkeyval' => array(
 			self::STATUS_QUEUED => 'AuvoRechnungsimportStatusQueued',
+			self::STATUS_SPAM_REVIEW => 'AuvoRechnungsimportStatusSpamReview',
+			self::STATUS_DUPLICATE => 'AuvoRechnungsimportStatusDuplicate',
+			self::STATUS_SPAM_CONFIRMED => 'AuvoRechnungsimportStatusSpamConfirmed',
 			self::STATUS_PROCESSING => 'AuvoRechnungsimportStatusProcessing',
 			self::STATUS_NEEDS_REVIEW => 'AuvoRechnungsimportStatusNeedsReview',
 			self::STATUS_MATCHED => 'AuvoRechnungsimportStatusMatched',
@@ -194,6 +200,9 @@ class ImportedInvoice extends CommonObject
 		global $langs;
 		$labels = array(
 			self::STATUS_QUEUED => $langs->trans('AuvoRechnungsimportStatusQueued'),
+			self::STATUS_SPAM_REVIEW => $langs->trans('AuvoRechnungsimportStatusSpamReview'),
+			self::STATUS_DUPLICATE => $langs->trans('AuvoRechnungsimportStatusDuplicate'),
+			self::STATUS_SPAM_CONFIRMED => $langs->trans('AuvoRechnungsimportStatusSpamConfirmed'),
 			self::STATUS_PROCESSING => $langs->trans('AuvoRechnungsimportStatusProcessing'),
 			self::STATUS_NEEDS_REVIEW => $langs->trans('AuvoRechnungsimportStatusNeedsReview'),
 			self::STATUS_MATCHED => $langs->trans('AuvoRechnungsimportStatusMatched'),
@@ -206,6 +215,9 @@ class ImportedInvoice extends CommonObject
 		}
 		$classes = array(
 			self::STATUS_QUEUED => 'status0',
+			self::STATUS_SPAM_REVIEW => 'status8',
+			self::STATUS_DUPLICATE => 'status4',
+			self::STATUS_SPAM_CONFIRMED => 'status4',
 			self::STATUS_PROCESSING => 'status3',
 			self::STATUS_NEEDS_REVIEW => 'status1',
 			self::STATUS_MATCHED => 'status2',

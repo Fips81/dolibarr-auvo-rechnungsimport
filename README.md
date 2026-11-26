@@ -69,7 +69,12 @@ Email Collector connects to the IMAP service configured by the administrator.
 The attachment bytes are stored in Dolibarr's document directory for invoice
 review and pass through Dolibarr's configured upload checks, including its
 antivirus scanner if enabled. Data handling by a configured scanner follows
-that scanner's own configuration.
+that scanner's own configuration. An optional spam header name and expected
+value can be configured in the module setup; matching attachments are held in
+a separate review list until a user releases them for analysis or confirms
+them as spam. Existing invoice-number-and-amount duplicate hints can likewise
+be confirmed on the import card; confirmed imports remain available in the
+Spam & duplicates view.
 
 Danach gibt es im Hauptmenü den Eintrag **Eingangsrechnungen**.
 
