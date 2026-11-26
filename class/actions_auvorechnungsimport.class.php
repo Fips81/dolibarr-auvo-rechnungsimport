@@ -42,6 +42,7 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 		// Email Collector's test run rolls its database transaction back. Do not
 		// write files or launch a queue worker from that simulated run.
 		if (GETPOST('action', 'aZ09') === 'collecttest') {
+			$this->appendEmailCollectorLog($object, $langs->trans('AuvoRechnungsimportEmailTestSkipped'));
 			return 0;
 		}
 
@@ -94,7 +95,9 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 			return $this->failEmailCollectorImport(implode('; ', $readErrors));
 		}
 		if (empty($files)) {
-			dol_syslog('AuVo Rechnungsimport Email Collector: no non-empty PDF or XML attachments found; email skipped', LOG_INFO);
+			$message = $langs->trans('AuvoRechnungsimportEmailNoSupportedAttachments');
+			$this->appendEmailCollectorLog($object, $message);
+			dol_syslog('AuVo Rechnungsimport Email Collector: '.$message.' Email skipped.', LOG_INFO);
 			return 1;
 		}
 
@@ -180,7 +183,20 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 		}
 
 		$this->scheduleEmailCollectorQueueStart(count($files));
+		$this->appendEmailCollectorLog($object, $langs->trans('AuvoRechnungsimportEmailQueued', count($files)));
 		return 1;
+	}
+
+	/** Add a readable operation result to Email Collector's debug log. */
+	private function appendEmailCollectorLog($object, $message)
+	{
+		if (!is_object($object)) {
+			return;
+		}
+		if (!isset($object->debuginfo)) {
+			$object->debuginfo = '';
+		}
+		$object->debuginfo .= '<br>'.dol_escape_htmltag($message);
 	}
 
 	/** Set useful diagnostics consumed by Email Collector when an action fails. */
