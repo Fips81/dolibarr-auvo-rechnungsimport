@@ -94,7 +94,7 @@ class ActionsAuvoRechnungsimport extends CommonHookActions
 			if ($filename === '' || $filename === '.' || $filename === '..') {
 				$filename = 'email-attachment.'.$extension;
 			}
-			$filename = dol_trunc(pathinfo($filename, PATHINFO_FILENAME), 200).'.'.$extension;
+			$filename = dol_trunc(pathinfo($filename, PATHINFO_FILENAME), 200, 'right', 'UTF-8', 1).'.'.$extension;
 			$files[] = array('name' => $filename, 'content' => $content);
 		}
 

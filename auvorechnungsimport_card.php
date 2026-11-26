@@ -65,7 +65,7 @@ $canCreateBank = $user->hasRight('societe', 'creer');   // also covers creating 
 $canCreateProduct = isModEnabled('variants') && $user->hasRight('produit', 'creer');
 
 if (in_array((int) $object->status, array(ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)
-	&& in_array($action, array('createinvoice', 'reprocess', 'confirm_delete', 'attachpdf'), true)) {
+	&& in_array($action, array('createinvoice', 'reprocess', 'attachpdf'), true)) {
 	accessforbidden('Spam and duplicate imports are not available for invoice processing');
 }
 
@@ -414,7 +414,7 @@ if ($action === 'confirmduplicate' && $user->hasRight('auvorechnungsimport', 'im
 	setEventMessages($langs->trans('AuvoRechnungsimportDuplicateConfirmFailed'), $object->errors, 'errors');
 }
 
-if ($action == 'confirm_delete' && GETPOST('confirm') == 'yes' && $user->hasRight('auvorechnungsimport', 'imports', 'write') && !in_array((int) $object->status, array(ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) {
+if ($action == 'confirm_delete' && GETPOST('confirm') == 'yes' && $user->hasRight('auvorechnungsimport', 'imports', 'write')) {
 	if (!GETPOSTISSET('token') || GETPOST('token') !== newToken()) {
 		accessforbidden('CSRF');
 	}
@@ -431,7 +431,7 @@ if ($action == 'confirm_delete' && GETPOST('confirm') == 'yes' && $user->hasRigh
 
 llxHeader('', $object->ref);
 
-if ($action == 'delete' && !in_array((int) $object->status, array(ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) {
+if ($action == 'delete') {
 	print $form->formconfirm($_SERVER['PHP_SELF'].'?id='.$object->id, $langs->trans('AuvoRechnungsimportDeleteTitle'), $langs->trans('AuvoRechnungsimportDeleteConfirm'), 'confirm_delete', '', '', 1);
 }
 
@@ -462,9 +462,7 @@ if ($user->hasRight('auvorechnungsimport', 'imports', 'write')) {
 		$duplicateUrl = $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirmduplicate&duplicate_id='.(int) $duplicateCandidate['id'].'&token='.newToken();
 		$morehtmlright .= dolGetButtonAction('', $duplicateLabel, 'default', $duplicateUrl, '', 1, array('confirm' => array('content' => $duplicatePrompt)));
 	}
-	if (!in_array((int) $object->status, array(ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) {
-		$morehtmlright .= dolGetButtonAction('', $langs->trans('Delete'), 'delete', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=delete', '', 1);
-	}
+	$morehtmlright .= dolGetButtonAction('', $langs->trans('Delete'), 'delete', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=delete', '', 1);
 }
 $isSpamReview = (int) $object->status === ImportedInvoice::STATUS_SPAM_REVIEW;
 $nextId = auvorechnungsimport_next_to_review($db, $object->id, $isSpamReview);
