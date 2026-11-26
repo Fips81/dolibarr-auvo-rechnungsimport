@@ -45,6 +45,7 @@ class modAuvoRechnungsimport extends DolibarrModules
 			'tpl' => 0,
 			'barcode' => 0,
 			'models' => 0,
+			'hooks' => array('data' => array('emailcollectorcard', 'emailcolector', 'emailcollector')),
 		);
 
 		$this->dirs = array('/auvorechnungsimport/temp');

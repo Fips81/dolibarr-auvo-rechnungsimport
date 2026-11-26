@@ -48,6 +48,7 @@ class ImportedInvoice extends CommonObject
 		)),
 		'original_filename' => array('type' => 'varchar(255)', 'label' => 'AuvoRechnungsimportOriginalFilename', 'enabled' => 1, 'position' => 50, 'notnull' => 1, 'visible' => 1),
 		'filepath' => array('type' => 'varchar(255)', 'label' => 'AuvoRechnungsimportFilepath', 'enabled' => 1, 'position' => 55, 'notnull' => 1, 'visible' => 0),
+		'source' => array('type' => 'varchar(24)', 'label' => 'AuvoRechnungsimportSource', 'enabled' => 1, 'position' => 58, 'notnull' => 1, 'default' => 'unknown', 'visible' => 0),
 		'extraction_method' => array('type' => 'varchar(32)', 'label' => 'AuvoRechnungsimportExtractionMethod', 'enabled' => 1, 'position' => 60, 'notnull' => 0, 'visible' => 1),
 		'extracted_data' => array('type' => 'text', 'label' => 'AuvoRechnungsimportExtractedData', 'enabled' => 1, 'position' => 65, 'notnull' => 0, 'visible' => 0),
 		'fk_soc' => array('type' => 'integer:Societe:societe/class/societe.class.php', 'label' => 'ThirdParty', 'picto' => 'company', 'enabled' => 1, 'position' => 70, 'notnull' => -1, 'visible' => 1, 'index' => 1),
@@ -66,6 +67,7 @@ class ImportedInvoice extends CommonObject
 	public $status;
 	public $original_filename;
 	public $filepath;
+	public $source;
 	public $extraction_method;
 	public $extracted_data;
 	public $fk_soc;

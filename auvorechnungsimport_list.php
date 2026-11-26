@@ -69,6 +69,7 @@ if ($action == 'upload' && $user->hasRight('auvorechnungsimport', 'imports', 'wr
 		$object->date_creation = dol_now();
 		$object->fk_user_creat = $user->id;
 		$object->original_filename = $origname;
+		$object->source = 'manual';
 		$object->filepath = '';
 		$object->status = ImportedInvoice::STATUS_QUEUED;
 

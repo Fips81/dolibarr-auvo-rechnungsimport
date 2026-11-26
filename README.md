@@ -54,6 +54,23 @@ Gegenstück zu [AuVo E-Rechnung](https://github.com/Fips81/dolibarr-auvo-erechnu
 4. Optional in den Moduleinstellungen: OCR-Sprachen und -Seitenzahl,
    Stichwörter für Kosten- und Weglass-Positionen.
 
+### Optional: Email Collector
+
+If Dolibarr's Email Collector module is enabled, add **Import into invoice
+import** (German: **In Rechnungsimport übernehmen**) to a collector's operations
+to queue non-empty PDF and XML attachments. The import module starts its
+existing detached analysis worker after the collector finishes its database
+transaction; the Cron module and BlockedLog are not required. If the worker
+cannot start, the attachments remain queued and the failure is written to the
+Dolibarr log. After adding the operation, disable and re-enable AuVo
+Rechnungsimport once so Dolibarr refreshes the registered hook contexts.
+
+Email Collector connects to the IMAP service configured by the administrator.
+The attachment bytes are stored in Dolibarr's document directory for invoice
+review and pass through Dolibarr's configured upload checks, including its
+antivirus scanner if enabled. Data handling by a configured scanner follows
+that scanner's own configuration.
+
 Danach gibt es im Hauptmenü den Eintrag **Eingangsrechnungen**.
 
 **Update:** Ordner `custom/auvorechnungsimport` durch den neuen ersetzen

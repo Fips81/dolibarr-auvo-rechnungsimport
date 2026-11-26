@@ -5,6 +5,12 @@ ModuleAuvoRechnungsimportDesc=Upload supplier invoices: reads XRechnung (CII/UBL
 
 AuvoRechnungsimportUpload=Upload invoices (PDF, ZUGFeRD/Factur-X, XRechnung XML)
 AuvoRechnungsimportUploadBtn=Upload and analyze
+AuvoRechnungsimportSource=Import source
+AuvoRechnungsimportEmailCollectorAction=Add to invoice import
+AuvoRechnungsimportEmailNoSupportedAttachments=No non-empty PDF or XML attachments were found in this email.
+AuvoRechnungsimportEmailReadFailed=Could not read attachment "%s" from this email.
+AuvoRechnungsimportEmailCreateFailed=Could not create an import record for attachment "%s".
+AuvoRechnungsimportEmailStoreFailed=Could not store attachment "%s".
 AuvoRechnungsimportOriginalFilename=File name
 AuvoRechnungsimportExtractionMethod=Extraction method
 AuvoRechnungsimportMatchConfidence=Match confidence

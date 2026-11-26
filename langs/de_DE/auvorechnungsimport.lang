@@ -5,6 +5,12 @@ ModuleAuvoRechnungsimportDesc=Eingangsrechnungen per Upload erfassen: liest XRec
 
 AuvoRechnungsimportUpload=Rechnungen hochladen (PDF, ZUGFeRD/Factur-X, XRechnung-XML)
 AuvoRechnungsimportUploadBtn=Hochladen und analysieren
+AuvoRechnungsimportSource=Importquelle
+AuvoRechnungsimportEmailCollectorAction=In Rechnungsimport übernehmen
+AuvoRechnungsimportEmailNoSupportedAttachments=In dieser E-Mail wurden keine nichtleeren PDF- oder XML-Anhänge gefunden.
+AuvoRechnungsimportEmailReadFailed=Der Anhang „%s“ aus dieser E-Mail konnte nicht gelesen werden.
+AuvoRechnungsimportEmailCreateFailed=Für den Anhang „%s“ konnte kein Importdatensatz angelegt werden.
+AuvoRechnungsimportEmailStoreFailed=Der Anhang „%s“ konnte nicht gespeichert werden.
 AuvoRechnungsimportOriginalFilename=Dateiname
 AuvoRechnungsimportExtractionMethod=Erkennungsmethode
 AuvoRechnungsimportMatchConfidence=Treffergenauigkeit
