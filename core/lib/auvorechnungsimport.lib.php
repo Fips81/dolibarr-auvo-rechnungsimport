@@ -2062,18 +2062,35 @@ function auvorechnungsimport_queue_start()
 		return true;
 	}
 	if (!function_exists('exec')) {
+		dol_syslog('AuVo Rechnungsimport: PHP exec() is disabled; cannot start background queue worker', LOG_ERR);
 		return false;
 	}
 	dol_mkdir(dirname(auvorechnungsimport_queue_lockfile()));
-	$php = getDolGlobalString('AUVORECHNUNGSIMPORT_PHP_CLI_PATH');
-	if ($php === '' || !is_executable($php)) {
-		$php = is_executable(PHP_BINDIR.'/php') ? PHP_BINDIR.'/php' : '/usr/bin/php';
+	$php = trim(getDolGlobalString('AUVORECHNUNGSIMPORT_PHP_CLI_PATH'));
+	if ($php === '') {
+		$php = PHP_BINDIR.(DIRECTORY_SEPARATOR === '\\' ? '\\php.exe' : '/php');
+	}
+	if (!is_file($php) || !is_executable($php)) {
+		dol_syslog('AuVo Rechnungsimport: PHP CLI executable not found: '.$php, LOG_ERR);
+		return false;
 	}
 	$script = dirname(__DIR__, 2).'/scripts/process_queue.php';
-	// setsid + all streams redirected: fully detached from the web server
-	// process, so the request returns immediately and the worker survives it.
-	$cmd = (is_executable('/usr/bin/setsid') ? '/usr/bin/setsid ' : 'nohup ').escapeshellarg($php).' '.escapeshellarg($script).' '.((int) $conf->entity).' > /dev/null 2>&1 < /dev/null &';
+	if (DIRECTORY_SEPARATOR === '\\') {
+		// Windows start /B detaches from the request; quote each cmd.exe argument.
+		$quoteWindows = static function ($value) {
+			return '"'.str_replace(array('%', '"'), array('%%', '\\"'), $value).'"';
+		};
+		$command = $quoteWindows($php).' '.$quoteWindows($script).' '.((int) $conf->entity);
+		$cmd = 'start "" /B cmd /C '.$quoteWindows($command.' >NUL 2>&1');
+	} else {
+		// setsid + all streams redirected: fully detached from the web server
+		// process, so the request returns immediately and the worker survives it.
+		$cmd = (is_executable('/usr/bin/setsid') ? '/usr/bin/setsid ' : 'nohup ').escapeshellarg($php).' '.escapeshellarg($script).' '.((int) $conf->entity).' > /dev/null 2>&1 < /dev/null &';
+	}
 	exec($cmd, $output, $retval);
+	if ($retval !== 0) {
+		dol_syslog('AuVo Rechnungsimport: could not launch background queue worker (exit '.$retval.'): '.$cmd, LOG_ERR);
+	}
 	return $retval === 0;
 }
 
