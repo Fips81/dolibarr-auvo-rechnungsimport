@@ -30,6 +30,10 @@ function auvorechnungsimport_parse_einvoice($xml)
 	if (!is_string($xml) || trim($xml) === '') {
 		return null;
 	}
+	// Reject DTDs and entity declarations before libxml parses them (XXE protection).
+	if (strpos($xml, "\0") !== false || preg_match('/<!DOCTYPE\b|<!ENTITY\b/i', $xml)) {
+		return null;
+	}
 	$dom = new DOMDocument();
 	// LIBXML_NONET: never resolve external entities or DTDs from the network.
 	if (!@$dom->loadXML($xml, LIBXML_NONET)) {
