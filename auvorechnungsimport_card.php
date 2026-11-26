@@ -53,6 +53,12 @@ if ($object->fetch($id) <= 0) {
 	accessforbidden('Not found');
 }
 $extracted = $object->getExtractedData();
+$duplicateCandidates = array();
+$canConfirmDuplicate = $user->hasRight('auvorechnungsimport', 'imports', 'write')
+	&& in_array((int) $object->status, array(ImportedInvoice::STATUS_NEEDS_REVIEW, ImportedInvoice::STATUS_MATCHED, ImportedInvoice::STATUS_ERROR), true);
+if ($canConfirmDuplicate) {
+	$duplicateCandidates = auvorechnungsimport_find_duplicate_imports($db, $object, $extracted);
+}
 $canUpdateBuyprice = $user->hasRight('produit', 'creer') || $user->hasRight('service', 'creer');
 $canCreateOrder = isModEnabled('supplier_order') && $user->hasRight('fournisseur', 'commande', 'creer');
 $canCreateBank = $user->hasRight('societe', 'creer');   // also covers creating a supplier
@@ -449,6 +455,13 @@ if ($user->hasRight('auvorechnungsimport', 'imports', 'write')) {
 	} elseif (!in_array((int) $object->status, array(ImportedInvoice::STATUS_IMPORTED, ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) {
 		$morehtmlright .= dolGetButtonAction('', $langs->trans('AuvoRechnungsimportReprocessBtn'), 'default', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=reprocess&token='.newToken(), '', 1);
 	}
+	foreach ($duplicateCandidates as $duplicateCandidate) {
+		$duplicateRef = dol_escape_htmltag($duplicateCandidate['ref']);
+		$duplicateLabel = $langs->trans('AuvoRechnungsimportConfirmDuplicate').' ('.$duplicateRef.')';
+		$duplicatePrompt = $langs->trans('AuvoRechnungsimportConfirmDuplicatePrompt', $duplicateRef);
+		$duplicateUrl = $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=confirmduplicate&duplicate_id='.(int) $duplicateCandidate['id'].'&token='.newToken();
+		$morehtmlright .= dolGetButtonAction('', $duplicateLabel, 'default', $duplicateUrl, '', 1, array('confirm' => array('content' => $duplicatePrompt)));
+	}
 	if (!in_array((int) $object->status, array(ImportedInvoice::STATUS_DUPLICATE, ImportedInvoice::STATUS_SPAM_REVIEW, ImportedInvoice::STATUS_SPAM_CONFIRMED), true)) {
 		$morehtmlright .= dolGetButtonAction('', $langs->trans('Delete'), 'delete', $_SERVER['PHP_SELF'].'?id='.$object->id.'&action=delete', '', 1);
 	}
@@ -576,7 +589,6 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 			$hints[] = call_user_func_array(array($langs, 'transnoentities'), array_merge(array('AuvoRechnungsimportCheck'.$h['key']), $h['args']));
 		}
 	}
-	$duplicateCandidates = auvorechnungsimport_find_duplicate_imports($db, $object, $extracted);
 	if (!empty($hints) || !empty($duplicateCandidates)) {
 		print '<div class="warning"><b>'.$langs->trans('AuvoRechnungsimportCheckTitle').'</b><ul class="nomargintop nomarginbottom">';
 		foreach ($hints as $h) {
@@ -584,15 +596,7 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 		}
 		foreach ($duplicateCandidates as $duplicateCandidate) {
 			$duplicateLink = '<a href="'.$_SERVER['PHP_SELF'].'?id='.(int) $duplicateCandidate['id'].'">'.dol_escape_htmltag($duplicateCandidate['ref']).' ('.dol_escape_htmltag($duplicateCandidate['filename']).')</a>';
-			print '<li>'.$langs->trans('AuvoRechnungsimportCheckDuplicate', $duplicateLink);
-			if ($user->hasRight('auvorechnungsimport', 'imports', 'write') && in_array((int) $object->status, array(ImportedInvoice::STATUS_NEEDS_REVIEW, ImportedInvoice::STATUS_MATCHED, ImportedInvoice::STATUS_ERROR), true)) {
-				print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'?id='.(int) $object->id.'" class="inline-block" onsubmit="return confirm(\''.dol_escape_js($langs->transnoentitiesnoconv('AuvoRechnungsimportConfirmDuplicatePrompt')).'\');">';
-				print '<input type="hidden" name="token" value="'.newToken().'">';
-				print '<input type="hidden" name="action" value="confirmduplicate">';
-				print '<input type="hidden" name="duplicate_id" value="'.(int) $duplicateCandidate['id'].'">';
-				print '<button type="submit" class="button smallpaddingimp">'.$langs->trans('AuvoRechnungsimportConfirmDuplicate').'</button></form>';
-			}
-			print '</li>';
+			print '<li>'.$langs->trans('AuvoRechnungsimportCheckDuplicate', $duplicateLink).'</li>';
 		}
 		print '</ul></div>';
 	}
