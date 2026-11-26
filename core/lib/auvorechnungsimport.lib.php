@@ -2076,12 +2076,9 @@ function auvorechnungsimport_queue_start()
 	}
 	$script = dirname(__DIR__, 2).'/scripts/process_queue.php';
 	if (DIRECTORY_SEPARATOR === '\\') {
-		// Windows start /B detaches from the request; quote each cmd.exe argument.
-		$quoteWindows = static function ($value) {
-			return '"'.str_replace(array('%', '"'), array('%%', '\\"'), $value).'"';
-		};
-		$command = $quoteWindows($php).' '.$quoteWindows($script).' '.((int) $conf->entity);
-		$cmd = 'start "" /B cmd /C '.$quoteWindows($command.' >NUL 2>&1');
+		// `start` itself detaches; nesting another cmd /C can report success
+		// without launching the child process on Windows.
+		$cmd = 'start "" /B '.escapeshellarg($php).' '.escapeshellarg($script).' '.((int) $conf->entity).' >NUL 2>&1';
 	} else {
 		// setsid + all streams redirected: fully detached from the web server
 		// process, so the request returns immediately and the worker survives it.
