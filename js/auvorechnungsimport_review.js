@@ -204,6 +204,14 @@
 	var expectedNet = feedback.dataset.expectedNet === "" ? null : parseFloat(feedback.dataset.expectedNet);
 	var expectedGross = feedback.dataset.expectedGross === "" ? null : parseFloat(feedback.dataset.expectedGross);
 	var totalMismatch = feedback.dataset.totalMismatch || "";
+	var mismatchGrossText = feedback.dataset.mismatchGross || "";
+	var mismatchNetText = feedback.dataset.mismatchNet || "";
+	var mismatchNoLinesText = feedback.dataset.mismatchNoLines || "";
+	var mismatchAdviceText = feedback.dataset.mismatchAdvice || "";
+	var mismatchDraftDeniedText = feedback.dataset.mismatchDraftDenied || "";
+	var mismatchDraftAllowedText = feedback.dataset.mismatchDraftAllowed || "";
+	var allowDraftMismatch = feedback.dataset.allowDraftMismatch === "1";
+	var noDetectedLines = feedback.dataset.noDetectedLines === "1";
 	var skipWarning = feedback.dataset.skipWarning || "";
 	var requiredFields = document.getElementById("auvorechnungsimport-required-fields");
 	var missingFieldsText = feedback.dataset.missingFields || "";
@@ -221,6 +229,9 @@
 	function formatAmount(value) {
 		var parts = Math.abs(value).toFixed(2).split(".");
 		return (value < 0 ? "-" : "") + parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, thousands) + decimal + parts[1];
+	}
+	function mismatchDetail(template, expected, actual) {
+		return template.replace("__EXPECTED__", formatAmount(expected)).replace("__ACTUAL__", formatAmount(actual));
 	}
 	function parseAmount(value) {
 		value = (value || "").replace(/\s/g, "");
@@ -302,7 +313,15 @@
 			requiredFields.textContent = requirements.join(" ");
 		}
 		feedback.style.display = netMismatch || grossMismatch ? "" : "none";
-		feedback.textContent = netMismatch || grossMismatch ? totalMismatch : "";
+		if (netMismatch || grossMismatch) {
+			var mismatchDetails = [];
+			if (grossMismatch) mismatchDetails.push(mismatchDetail(mismatchGrossText, expectedGross - skippedGross, sumGross));
+			if (netMismatch) mismatchDetails.push(mismatchDetail(mismatchNetText, expectedNet - skippedNet, sumNet));
+			if (noDetectedLines) mismatchDetails.push(mismatchNoLinesText);
+			mismatchDetails.push(mismatchAdviceText || totalMismatch);
+			mismatchDetails.push(allowDraftMismatch ? mismatchDraftAllowedText : mismatchDraftDeniedText);
+			feedback.textContent = mismatchDetails.join(" ");
+		} else feedback.textContent = "";
 		var netTotal = document.getElementById("auvorechnungsimport-sum-net");
 		var grossTotal = document.getElementById("auvorechnungsimport-sum-gross");
 		var toBook = document.getElementById("auvorechnungsimport-tobook");
@@ -312,7 +331,7 @@
 		if (toBook) toBook.textContent = formatAmount(booked);
 		if (skipFeedback) skipFeedback.textContent = Math.abs(skipped) > 0.005 ? skipWarning.replace("__AMOUNT__", formatAmount(skipped)) : "";
 		var createButton = document.getElementById("auvorechnungsimport-create-invoice");
-		if (createButton) createButton.disabled = !valid || netMismatch || grossMismatch;
+		if (createButton) createButton.disabled = !valid || ((netMismatch || grossMismatch) && !allowDraftMismatch);
 		var releaseOrderButton = document.getElementById("auvorechnungsimport-create-invoice-release-order");
 		if (releaseOrderButton) releaseOrderButton.disabled = !valid || count === 0 || netMismatch || grossMismatch;
 	}

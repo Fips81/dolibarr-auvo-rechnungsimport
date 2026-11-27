@@ -63,6 +63,7 @@ class modAuvoRechnungsimport extends DolibarrModules
 			array('AUVORECHNUNGSIMPORT_UPDATE_BUYPRICE_MODE', 'chaine', 'auto', 'Verhalten der Aktualisierung von Lieferantenpreisen und -referenzen: auto, allow oder deny', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_CREATE_ORDER_MODE', 'chaine', 'allow', 'Verhalten der zusätzlichen Lieferantenbestellung: auto, allow oder deny', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_ALLOW_RELEASE_ORDER_BUTTON', 'int', '1', 'Schaltfläche Rechnung anlegen und Bestellung freigeben anzeigen', 1, 'current', 0),
+			array('AUVORECHNUNGSIMPORT_ALLOW_DRAFT_TOTAL_MISMATCH', 'int', '0', 'Rechnungsentwurf trotz abweichender erkannter Summe erlauben', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_DELETE_BLOCKED_STATUSES', 'chaine', '', 'Status, für die das Löschen von Importen gesperrt ist', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_SPAM_HEADER', 'chaine', '', 'Optionaler Mail-Header zur manuellen Spam-Pruefung', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_SPAM_VALUE', 'chaine', '', 'Erwarteter Wert des Spam-Headers', 1, 'current', 0),

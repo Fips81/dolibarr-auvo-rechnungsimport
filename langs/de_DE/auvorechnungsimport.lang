@@ -86,7 +86,15 @@ AuvoRechnungsimportGermanSupplierTaxIdField=USt-IdNr. oder Steuernummer
 AuvoRechnungsimportErrOrderNoLines=Für das Anlegen und Freigeben einer Lieferantenbestellung muss mindestens eine Rechnungsposition übernommen werden. Die Lieferantenrechnung kann stattdessen als Entwurf ohne Positionen angelegt werden.
 AuvoRechnungsimportErrProductRequired=Für „Übernehmen“ muss jeder Position ein Produkt oder eine Leistung zugeordnet sein. Verwende „Ohne Artikel buchen“, wenn die Position ohne Produkt gebucht werden soll.
 AuvoRechnungsimportErrVatRate=Bitte einen gültigen Umsatzsteuersatz zwischen 0 und 100 eingeben.
-AuvoRechnungsimportErrReviewTotalMismatch=Die Summe der zu übernehmenden Positionen stimmt nicht mit den erkannten Rechnungsbeträgen überein. Bitte Positionen und Umsatzsteuersätze prüfen; es wurde nichts angelegt.
+AuvoRechnungsimportErrReviewTotalMismatch=Die Positionssumme stimmt nicht mit dem erkannten Rechnungsbetrag überein.
+AuvoRechnungsimportMismatchGross=Brutto: nach Abzug weggelassener Positionen erwartet %s EUR, Positionen ergeben %s EUR.
+AuvoRechnungsimportMismatchNet=Netto: nach Abzug weggelassener Positionen erwartet %s EUR, Positionen ergeben %s EUR.
+AuvoRechnungsimportMismatchNoLines=Im PDF-Text wurden keine Rechnungspositionen erkannt.
+AuvoRechnungsimportMismatchAdvice=Prüfe, ob die Positionen vollständig sind und ob sie als Netto- oder Bruttopreise mit dem passenden Umsatzsteuersatz erfasst wurden. Ergänze fehlende Positionen oder korrigiere die Werte.
+AuvoRechnungsimportMismatchBlocked=Die direkte Freigabe wurde wegen der Abweichung blockiert; es wurde nichts angelegt.
+AuvoRechnungsimportMismatchDraftAllowed=Der Entwurf wurde trotz der Abweichung angelegt. Korrigiere die Positionen vor der Freigabe.
+AuvoRechnungsimportMismatchDraftCanCreate=Die Administratoreinstellung erlaubt, den Entwurf trotz der Abweichung anzulegen; die Freigabe bleibt gesperrt.
+AuvoRechnungsimportMismatchDraftDenied=Die Administratoreinstellung verbietet das Anlegen eines Entwurfs bei abweichender Rechnungssumme.
 AuvoRechnungsimportErrNoSupplier=Bitte einen Lieferanten auswählen
 AuvoRechnungsimportCreatedFrom=Automatisch erzeugt aus Eingangsrechnungs-Import %s
 
@@ -95,6 +103,8 @@ AuvoRechnungsimportOcrLangsHelp=z.B. deu+fra+eng - nur relevant für gescannte P
 AuvoRechnungsimportOcrMaxPages=OCR: maximale Seitenzahl
 AuvoRechnungsimportOcrMaxPagesHelp=Nur für gescannte PDFs. Positionen über mehrere Seiten werden nur bis zu dieser Seite erkannt; jede Seite kostet einige Sekunden beim Upload.
 AuvoRechnungsimportAutocreateSupplier=Neuanlage von Lieferanten und Bankkonten erlauben
+AuvoRechnungsimportAllowDraftTotalMismatch=Rechnungsentwurf bei falschen Rechnungssummen erlauben
+AuvoRechnungsimportAllowDraftTotalMismatchHelp=Wenn aktiviert, kann eine Lieferantenrechnung trotz Abweichung zwischen Positionssumme und erkanntem Rechnungsbetrag als Entwurf angelegt werden. Eine direkte Freigabe bleibt bei Abweichungen gesperrt. Standardmäßig deaktiviert.
 AuvoRechnungsimportNotYetImplemented=noch nicht implementiert - bitte Lieferant manuell auswählen
 
 AuvoRechnungsimportLinesTitle=Erkannte Positionen

@@ -86,7 +86,15 @@ AuvoRechnungsimportGermanSupplierTaxIdField=VAT ID or tax number
 AuvoRechnungsimportErrOrderNoLines=At least one invoice line is required to create and approve a supplier order. You can create the supplier invoice as a draft without lines instead.
 AuvoRechnungsimportErrProductRequired=Every “Take over” line must be linked to a product or service. Choose “Book without product” to book a free-text line.
 AuvoRechnungsimportErrVatRate=Enter a valid VAT rate from 0 to 100.
-AuvoRechnungsimportErrReviewTotalMismatch=The total of the lines to be booked does not match the detected invoice totals. Check the lines and VAT rates; nothing was created.
+AuvoRechnungsimportErrReviewTotalMismatch=The line total does not match the detected invoice amount.
+AuvoRechnungsimportMismatchGross=Gross: after subtracting skipped lines, %s EUR is expected; the entered lines total %s EUR.
+AuvoRechnungsimportMismatchNet=Net: after subtracting skipped lines, %s EUR is expected; the entered lines total %s EUR.
+AuvoRechnungsimportMismatchNoLines=No invoice line items were detected in the PDF text.
+AuvoRechnungsimportMismatchAdvice=Check that all lines are included and whether they are entered as net or gross prices with the correct VAT rate. Add missing lines or correct their values.
+AuvoRechnungsimportMismatchBlocked=Direct approval was blocked because of the mismatch; nothing was created.
+AuvoRechnungsimportMismatchDraftAllowed=The draft was created despite the mismatch. Correct the lines before approval.
+AuvoRechnungsimportMismatchDraftCanCreate=The admin setting allows creating the draft despite the mismatch; approval remains blocked.
+AuvoRechnungsimportMismatchDraftDenied=The admin setting does not allow creating a draft when invoice totals differ.
 AuvoRechnungsimportErrNoSupplier=Please select a supplier
 AuvoRechnungsimportCreatedFrom=Automatically created from supplier invoice import %s
 
@@ -95,6 +103,8 @@ AuvoRechnungsimportOcrLangsHelp=e.g. deu+fra+eng - only relevant for scanned PDF
 AuvoRechnungsimportOcrMaxPages=OCR: maximum number of pages
 AuvoRechnungsimportOcrMaxPagesHelp=Only for scanned PDFs. Lines spanning several pages are only detected up to this page; each page adds a few seconds to the upload.
 AuvoRechnungsimportAutocreateSupplier=Allow creating suppliers and bank accounts
+AuvoRechnungsimportAllowDraftTotalMismatch=Allow invoice drafts when totals do not match
+AuvoRechnungsimportAllowDraftTotalMismatchHelp=When enabled, a supplier invoice can be created as a draft even if the line total differs from the detected invoice amount. Direct approval remains blocked while totals differ. Disabled by default.
 AuvoRechnungsimportNotYetImplemented=not yet implemented - please pick the supplier manually
 
 AuvoRechnungsimportLinesTitle=Detected lines

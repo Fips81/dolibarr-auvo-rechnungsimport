@@ -51,6 +51,7 @@ if ($action == 'update') {
 		dolibarr_set_const($db, $modeConst, $mode, 'chaine', 0, '', $conf->entity);
 	}
 	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_ALLOW_RELEASE_ORDER_BUTTON', GETPOSTINT('AUVORECHNUNGSIMPORT_ALLOW_RELEASE_ORDER_BUTTON') ? 1 : 0, 'chaine', 0, '', $conf->entity);
+	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_ALLOW_DRAFT_TOTAL_MISMATCH', GETPOSTINT('AUVORECHNUNGSIMPORT_ALLOW_DRAFT_TOTAL_MISMATCH') ? 1 : 0, 'chaine', 0, '', $conf->entity);
 	$deleteStatuses = GETPOST('AUVORECHNUNGSIMPORT_DELETE_BLOCKED_STATUSES', 'array');
 	$validDeleteStatuses = array(
 		ImportedInvoice::STATUS_PROCESSING, ImportedInvoice::STATUS_NEEDS_REVIEW, ImportedInvoice::STATUS_IMPORTED,
@@ -130,6 +131,10 @@ foreach (array(
 
 print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportAllowReleaseOrderButton').'<br><span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportAllowReleaseOrderButtonHelp').'</span></td><td>';
 print '<input type="checkbox" name="AUVORECHNUNGSIMPORT_ALLOW_RELEASE_ORDER_BUTTON" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_ALLOW_RELEASE_ORDER_BUTTON', 1) ? ' checked' : '').'>';
+print '</td></tr>';
+
+print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportAllowDraftTotalMismatch').'<br><span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportAllowDraftTotalMismatchHelp').'</span></td><td>';
+print '<input type="checkbox" name="AUVORECHNUNGSIMPORT_ALLOW_DRAFT_TOTAL_MISMATCH" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_ALLOW_DRAFT_TOTAL_MISMATCH', 0) ? ' checked' : '').'>';
 print '</td></tr>';
 
 $deleteStatusOptions = array(

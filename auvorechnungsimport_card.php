@@ -249,6 +249,9 @@ if (in_array($action, array('createinvoice', 'createinvoice_releaseorder'), true
 		$invoiceLines[$i] = array('source' => 'manual', 'label' => '', 'qty' => '', 'price' => null, 'price_base' => $invoiceLines[0]['price_base'] ?? 'HT', 'vat_rate' => null, 'total' => 0, 'fk_product' => 0, 'ref_supplier' => '', 'unit_code' => '');
 	}
 	$lineInputError = '';
+	$lineInputErrorMessage = '';
+	$totalMismatchDetected = false;
+	$allowDraftTotalMismatch = getDolGlobalInt('AUVORECHNUNGSIMPORT_ALLOW_DRAFT_TOTAL_MISMATCH', 0) === 1;
 	$refSupplier = trim((string) GETPOST('ref_supplier', 'alphanohtml'));
 	$invoiceDate = trim((string) GETPOST('invoice_date', 'alpha'));
 	$headerInputError = $refSupplier === '' ? 'AuvoRechnungsimportErrSupplierRefRequired' : '';
@@ -313,9 +316,26 @@ if (in_array($action, array('createinvoice', 'createinvoice_releaseorder'), true
 	}
 	if ($lineInputError === '' && $bookableLineCount > 0) {
 		$tolerance = max(0.02, 0.01 * $bookableLineCount);
-		if ((isset($extracted['amount_ht']) && $extracted['amount_ht'] !== null && abs($reviewNet - ((float) $extracted['amount_ht'] - $skippedNet)) > $tolerance)
-			|| (isset($extracted['amount_ttc']) && $extracted['amount_ttc'] !== null && abs($reviewGross - ((float) $extracted['amount_ttc'] - $skippedGross)) > $tolerance)) {
-			$lineInputError = 'AuvoRechnungsimportErrReviewTotalMismatch';
+		$netMismatch = isset($extracted['amount_ht']) && $extracted['amount_ht'] !== null && abs($reviewNet - ((float) $extracted['amount_ht'] - $skippedNet)) > $tolerance;
+		$grossMismatch = isset($extracted['amount_ttc']) && $extracted['amount_ttc'] !== null && abs($reviewGross - ((float) $extracted['amount_ttc'] - $skippedGross)) > $tolerance;
+		if ($netMismatch || $grossMismatch) {
+			$totalMismatchDetected = true;
+			$numberFormat = array('decimal' => $langs->transnoentitiesnoconv('SeparatorDecimal'), 'thousands' => $langs->transnoentitiesnoconv('SeparatorThousand'));
+			$decimalSeparator = $numberFormat['decimal'] === 'SeparatorDecimal' ? ',' : $numberFormat['decimal'];
+			$thousandsSeparator = in_array($numberFormat['thousands'], array('SeparatorThousand', 'None'), true) ? '.' : $numberFormat['thousands'];
+			$formatReviewAmount = function ($amount) use ($decimalSeparator, $thousandsSeparator) { return number_format((float) $amount, 2, $decimalSeparator, $thousandsSeparator); };
+			$details = array();
+			if ($grossMismatch) $details[] = $langs->trans('AuvoRechnungsimportMismatchGross', $formatReviewAmount((float) $extracted['amount_ttc'] - $skippedGross), $formatReviewAmount($reviewGross));
+			if ($netMismatch) $details[] = $langs->trans('AuvoRechnungsimportMismatchNet', $formatReviewAmount((float) $extracted['amount_ht'] - $skippedNet), $formatReviewAmount($reviewNet));
+			if (empty($extracted['lines'])) $details[] = $langs->trans('AuvoRechnungsimportMismatchNoLines');
+			$lineInputErrorMessage = implode(' ', $details).' '.$langs->trans('AuvoRechnungsimportMismatchAdvice');
+			if ($action === 'createinvoice_releaseorder') {
+				$lineInputError = 'AuvoRechnungsimportErrReviewTotalMismatch';
+				$lineInputErrorMessage .= ' '.$langs->trans('AuvoRechnungsimportMismatchBlocked');
+			} elseif (!$allowDraftTotalMismatch) {
+				$lineInputError = 'AuvoRechnungsimportErrReviewTotalMismatch';
+				$lineInputErrorMessage .= ' '.$langs->trans('AuvoRechnungsimportMismatchDraftDenied');
+			}
 		}
 	}
 	if ($action === 'createinvoice_releaseorder' && $lineInputError === '' && $bookableLineCount === 0) {
@@ -440,7 +460,7 @@ if (in_array($action, array('createinvoice', 'createinvoice_releaseorder'), true
 	} elseif ($headerInputError !== '') {
 		setEventMessages($langs->trans($headerInputError), null, 'errors');
 	} elseif ($lineInputError !== '') {
-		setEventMessages($langs->trans($lineInputError), null, 'errors');
+		setEventMessages($lineInputErrorMessage !== '' ? $lineInputErrorMessage : $langs->trans($lineInputError), null, 'errors');
 	} elseif ($supplierCreateError !== '') {
 		setEventMessages($langs->trans($supplierCreateError), null, 'errors');
 	} elseif (empty($fkSoc)) {
@@ -582,12 +602,15 @@ if (in_array($action, array('createinvoice', 'createinvoice_releaseorder'), true
 		}
 
 		if ($result > 0) {
+			if ($totalMismatchDetected && $action === 'createinvoice') {
+				setEventMessages($lineInputErrorMessage.' '.$langs->trans('AuvoRechnungsimportMismatchDraftAllowed'), null, 'warnings');
+			}
 			// The lines are only a proposal - warn (but don't block) if what we booked
 			// doesn't add up to the invoice total the PDF states. Dolibarr rounds VAT
 			// per line while invoices usually round on the total, so allow a cent of
 			// drift per few lines.
 			$tolerance = max(0.02, 0.0025 * count($extractedLines));
-			if (!empty($extracted['amount_ttc']) && $invoice->fetch($invoice->id) > 0
+			if (!$totalMismatchDetected && !empty($extracted['amount_ttc']) && $invoice->fetch($invoice->id) > 0
 				&& abs(abs((float) $invoice->total_ttc) - abs((float) $extracted['amount_ttc'])) > $tolerance && (float) $invoice->total_ttc != 0) {
 				setEventMessages($langs->trans('AuvoRechnungsimportWarnTotalMismatch', price(abs($invoice->total_ttc)), price(abs($extracted['amount_ttc']))), null, 'warnings');
 			}
@@ -1193,7 +1216,7 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 			print '<div class="info">'.$langs->trans($gross ? 'AuvoRechnungsimportLinesGross' : 'AuvoRechnungsimportLinesNet').'</div>';
 		}
 		if ($smallBusiness19) print '<div class="info">'.$langs->trans('AuvoRechnungsimportSmallBusiness19Detected').'</div>';
-		print '<div id="auvorechnungsimport-lines-total-feedback" class="error small" style="display:none" data-decimal="'.dol_escape_htmltag($reviewNumberFormat['decimal'] === 'SeparatorDecimal' ? ',' : $reviewNumberFormat['decimal']).'" data-thousands="'.dol_escape_htmltag($reviewThousands).'" data-expected-net="'.dol_escape_htmltag($reviewExpectedNet).'" data-expected-gross="'.dol_escape_htmltag($reviewExpectedGross).'" data-total-mismatch="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportErrReviewTotalMismatch')).'" data-skip-warning="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportSkipWarning', '__AMOUNT__')).'" data-missing-fields="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportMissingFields', '__FIELDS__')).'" data-field-description="'.dol_escape_htmltag($langs->transnoentitiesnoconv('Description')).'" data-field-quantity="'.dol_escape_htmltag($langs->transnoentitiesnoconv('Qty')).'" data-field-price="'.dol_escape_htmltag($langs->transnoentitiesnoconv($gross ? 'PriceUTTC' : 'PriceUHT')).'" data-field-vat="'.dol_escape_htmltag($langs->transnoentitiesnoconv('VAT')).'" data-field-product="'.dol_escape_htmltag($langs->transnoentitiesnoconv('Product')).'" data-field-supplier="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportSupplier')).'" data-field-reference="'.dol_escape_htmltag($langs->transnoentitiesnoconv('RefSupplier')).'" data-field-date="'.dol_escape_htmltag($langs->transnoentitiesnoconv('Date')).'" data-german-tax-id-required="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportGermanSupplierTaxIdField')).'"></div>';
+		print '<div id="auvorechnungsimport-lines-total-feedback" class="error small" style="display:none" data-decimal="'.dol_escape_htmltag($reviewNumberFormat['decimal'] === 'SeparatorDecimal' ? ',' : $reviewNumberFormat['decimal']).'" data-thousands="'.dol_escape_htmltag($reviewThousands).'" data-expected-net="'.dol_escape_htmltag($reviewExpectedNet).'" data-expected-gross="'.dol_escape_htmltag($reviewExpectedGross).'" data-total-mismatch="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportErrReviewTotalMismatch')).'" data-mismatch-gross="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportMismatchGross', '__EXPECTED__', '__ACTUAL__')).'" data-mismatch-net="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportMismatchNet', '__EXPECTED__', '__ACTUAL__')).'" data-mismatch-no-lines="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportMismatchNoLines')).'" data-mismatch-advice="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportMismatchAdvice')).'" data-no-detected-lines="'.(empty($extracted['lines']) ? '1' : '0').'" data-allow-draft-mismatch="'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_ALLOW_DRAFT_TOTAL_MISMATCH', 0) ? '1' : '0').'" data-mismatch-draft-denied="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportMismatchDraftDenied')).'" data-mismatch-draft-allowed="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportMismatchDraftCanCreate')).'" data-skip-warning="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportSkipWarning', '__AMOUNT__')).'" data-missing-fields="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportMissingFields', '__FIELDS__')).'" data-field-description="'.dol_escape_htmltag($langs->transnoentitiesnoconv('Description')).'" data-field-quantity="'.dol_escape_htmltag($langs->transnoentitiesnoconv('Qty')).'" data-field-price="'.dol_escape_htmltag($langs->transnoentitiesnoconv($gross ? 'PriceUTTC' : 'PriceUHT')).'" data-field-vat="'.dol_escape_htmltag($langs->transnoentitiesnoconv('VAT')).'" data-field-product="'.dol_escape_htmltag($langs->transnoentitiesnoconv('Product')).'" data-field-supplier="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportSupplier')).'" data-field-reference="'.dol_escape_htmltag($langs->transnoentitiesnoconv('RefSupplier')).'" data-field-date="'.dol_escape_htmltag($langs->transnoentitiesnoconv('Date')).'" data-german-tax-id-required="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportGermanSupplierTaxIdField')).'"></div>';
 		print '</div><button type="button" id="auvorechnungsimport-add-line" class="button-info" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportAddLine')).'" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportAddLine')).'"><span class="fa fa-plus-circle" aria-hidden="true"></span></button></div>';
 		print '<div class="div-table-responsive">';
 		print '<table id="auvorechnungsimport-lines-table" class="noborder centpercent">';
