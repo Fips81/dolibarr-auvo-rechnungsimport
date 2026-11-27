@@ -156,6 +156,15 @@ if ($action === 'savereview' && $user->hasRight('auvorechnungsimport', 'imports'
 	$extracted['supplier_name'] = $saveDetails['name'];
 	$extracted['supplier_vat'] = $saveDetails['vat'];
 	$extracted['supplier_tax_id'] = $saveDetails['tax_id'];
+	$overrideNameSubmitted = trim((string) GETPOST('supplier_self_guard_override_name', 'restricthtml'));
+	$overrideNameSaved = trim((string) $saveDetails['name']);
+	$overrideMode = GETPOST('supplier_mode', 'alpha') === 'new';
+	$overrideNameMatches = $overrideNameSubmitted !== '' && $overrideNameSaved !== '' && strcasecmp($overrideNameSubmitted, $overrideNameSaved) === 0;
+	if ($overrideMode && $overrideNameMatches) {
+		$extracted['own_company_override_name'] = $overrideNameSaved;
+	} else {
+		unset($extracted['own_company_override_name']);
+	}
 	$extracted['supplier_email'] = $saveDetails['email'];
 	$extracted['supplier_phone'] = $saveDetails['phone'];
 	$extracted['supplier_country'] = $saveDetails['country'];
@@ -381,8 +390,15 @@ if (in_array($action, array('createinvoice', 'createinvoice_releaseorder'), true
 	$supplierIdentity = array('supplier_name' => $supplierCreateDetails['name'], 'supplier_vat' => $supplierCreateDetails['vat']);
 	$detectedOwnCompany = auvorechnungsimport_is_own_company_supplier($db, $supplierIdentity);
 	$selectedOwnCompany = auvorechnungsimport_is_own_company_supplier($db, array(), $fkSoc);
-	$selfSupplierBlocked = $selectedOwnCompany || ($detectedOwnCompany && ($supplierMode === 'new' || $fkSoc <= 0));
-	if ($selfSupplierBlocked) {
+	$savedOwnCompanyOverride = trim((string) ($extracted['own_company_override_name'] ?? ''));
+	$ownCompanyOverrideMatches = $savedOwnCompanyOverride !== '' && strcasecmp($savedOwnCompanyOverride, trim((string) $supplierCreateDetails['name'])) === 0;
+	$postedOverrideName = trim((string) GETPOST('supplier_self_guard_override_name', 'restricthtml'));
+	$postedOverrideMatches = $postedOverrideName !== '' && strcasecmp($postedOverrideName, trim((string) $supplierCreateDetails['name'])) === 0;
+	$overrideNeedsSave = $supplierMode === 'new' && $postedOverrideMatches && !$ownCompanyOverrideMatches;
+	$selfSupplierBlocked = $selectedOwnCompany || ($detectedOwnCompany && ($supplierMode === 'new' || $fkSoc <= 0) && !$ownCompanyOverrideMatches) || $overrideNeedsSave;
+	if ($overrideNeedsSave) {
+		$supplierCreateError = 'AuvoRechnungsimportOwnCompanyOverrideMustSave';
+	} elseif ($selfSupplierBlocked) {
 		$supplierCreateError = 'AuvoRechnungsimportErrOwnCompanySupplier';
 	} elseif ($supplierMode === 'new' && !$canCreateSupplierAndBank) {
 		$supplierCreateError = 'AuvoRechnungsimportErrSupplierCreatePermission';
@@ -987,14 +1003,39 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	$previewSupplierId = isset($_POST['fk_soc']) ? GETPOSTINT('fk_soc') : (int) $object->fk_soc;
 	$detectedOwnCompany = auvorechnungsimport_is_own_company_supplier($db, array('supplier_name' => $previewSupplier['name'], 'supplier_vat' => $previewSupplier['vat']));
 	$selectedOwnCompany = auvorechnungsimport_is_own_company_supplier($db, array(), $previewSupplierId);
-	$selfSupplierBlocked = $selectedOwnCompany || ($detectedOwnCompany && ($previewSupplierMode === 'new' || $previewSupplierId <= 0));
+	$previewOverrideName = trim((string) ($extracted['own_company_override_name'] ?? ''));
+	$previewOverrideMatches = $previewOverrideName !== '' && strcasecmp($previewOverrideName, trim((string) $previewSupplier['name'])) === 0;
+	$postedOverrideName = trim((string) GETPOST('supplier_self_guard_override_name', 'restricthtml'));
+	$previewOverridePending = $previewSupplierMode === 'new' && $postedOverrideName !== '' && strcasecmp($postedOverrideName, trim((string) $previewSupplier['name'])) === 0 && !$previewOverrideMatches;
+	$selfSupplierBlocked = $selectedOwnCompany || ($detectedOwnCompany && ($previewSupplierMode === 'new' || $previewSupplierId <= 0) && !$previewOverrideMatches) || $previewOverridePending;
 	if ($selfSupplierBlocked) {
-		print '<div class="error">'.img_error().' '.$langs->trans('AuvoRechnungsimportOwnCompanySupplierWarning').'</div>';
+		print '<div class="error">'.img_error().' '.$langs->trans('AuvoRechnungsimportOwnCompanySupplierWarning');
+		if ($detectedOwnCompany && !$selectedOwnCompany && $previewSupplierMode === 'new') {
+			print ' <a href="#" id="auvorechnungsimport-own-company-override-link"'
+				.' data-title="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportOwnCompanyOverrideTitle')).'"'
+				.' data-instructions="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportOwnCompanyOverrideInstructions')).'"'
+				.' data-detected-label="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportOwnCompanyOverrideDetectedName')).'"'
+				.' data-detected-name="'.dol_escape_htmltag((string) ($extracted['supplier_name'] ?? $previewSupplier['name'])).'"'
+				.' data-placeholder="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportOwnCompanyOverridePlaceholder')).'"'
+				.' data-name-required="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportOwnCompanyOverrideNameRequired')).'"'
+				.' data-save-unavailable="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportOwnCompanyOverrideSaveUnavailable')).'"'
+				.' data-cancel="'.dol_escape_htmltag($langs->transnoentitiesnoconv('Cancel')).'"'
+				.' data-confirm="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportOwnCompanyOverrideConfirm')).'">'
+				.$langs->trans('AuvoRechnungsimportOwnCompanyOverrideLink').'</a>.';
+		}
+		print '</div>';
+	} elseif ($previewOverrideMatches) {
+		print '<div class="warning">'.img_warning().' '.$langs->trans('AuvoRechnungsimportOwnCompanyOverrideSaved').'</div>';
 	} elseif ($detectedOwnCompany) {
 		print '<div class="warning">'.img_warning().' '.$langs->trans('AuvoRechnungsimportOwnCompanySupplierOverrideWarning').'</div>';
 	}
 	print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'?id='.$object->id.'">';
 	print '<input type="hidden" name="token" value="'.newToken().'">';
+	$overrideFieldValue = $previewOverrideMatches ? $previewOverrideName : ($previewOverridePending ? $postedOverrideName : '');
+	print '<input type="hidden" id="supplier_self_guard_override_name" name="supplier_self_guard_override_name" value="'.dol_escape_htmltag($overrideFieldValue).'">';
+	$overridePendingStyle = $previewOverridePending ? '' : 'display:none';
+	$overridePendingText = $previewOverridePending ? $langs->trans('AuvoRechnungsimportOwnCompanyOverridePendingSave') : '';
+	print '<div id="auvorechnungsimport-own-company-override-status" class="warning small" style="'.$overridePendingStyle.'">'.dol_escape_htmltag($overridePendingText).'</div>';
 	print '<input type="hidden" name="line_count" id="auvorechnungsimport-line-count" value="'.max(1, count($extracted['lines'] ?? array())).'">';
 	print '<table class="border centpercent">';
 	$newSupplier = auvorechnungsimport_supplier_details_from_fields($extracted);

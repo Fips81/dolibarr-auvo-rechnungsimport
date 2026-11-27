@@ -40,6 +40,95 @@
 	supplierRadios.forEach(function (radio) { radio.addEventListener("change", syncSupplierMode); });
 	syncSupplierMode();
 
+	var ownCompanyOverrideLink = document.getElementById("auvorechnungsimport-own-company-override-link");
+	var ownCompanyOverrideField = document.getElementById("supplier_self_guard_override_name");
+	var ownCompanyOverrideStatus = document.getElementById("auvorechnungsimport-own-company-override-status");
+	function syncOwnCompanyOverrideLink() {
+		var selected = document.querySelector('input[name="supplier_mode"]:checked');
+		if (ownCompanyOverrideLink) ownCompanyOverrideLink.style.display = selected && selected.value === "new" ? "" : "none";
+	}
+	supplierRadios.forEach(function (radio) { radio.addEventListener("change", syncOwnCompanyOverrideLink); });
+	syncOwnCompanyOverrideLink();
+	if (supplierName && ownCompanyOverrideField) {
+		supplierName.addEventListener("input", function () {
+			ownCompanyOverrideField.value = "";
+			if (ownCompanyOverrideStatus) {
+				ownCompanyOverrideStatus.textContent = "";
+				ownCompanyOverrideStatus.style.display = "none";
+			}
+		});
+	}
+	if (ownCompanyOverrideLink && ownCompanyOverrideField) {
+		ownCompanyOverrideLink.addEventListener("click", function (event) {
+			event.preventDefault();
+			if (!supplierName || !supplierName.value.trim()) return;
+			var data = ownCompanyOverrideLink.dataset;
+			function acceptTypedName(input, errorNode, dialogNode) {
+				var confirmedName = String(input.value || "").trim().replace(/\s+/g, " ");
+				if (!confirmedName) {
+					if (errorNode) { errorNode.textContent = data.nameRequired; errorNode.style.display = ""; }
+					else window.alert(data.nameRequired);
+					return false;
+				}
+				supplierName.value = confirmedName;
+				supplierName.dispatchEvent(new Event("input", { bubbles: true }));
+				ownCompanyOverrideField.value = confirmedName;
+				var form = ownCompanyOverrideField.form;
+				var saveButton = form ? form.querySelector('button[name="action"][value="savereview"]') : null;
+				if (!form || !saveButton) {
+					if (errorNode) { errorNode.textContent = data.saveUnavailable; errorNode.style.display = ""; }
+					else window.alert(data.saveUnavailable);
+					return false;
+				}
+				if (!form.checkValidity()) {
+					form.reportValidity();
+					return false;
+				}
+				if (dialogNode && window.jQuery) jQuery(dialogNode).dialog("close");
+				if (typeof form.requestSubmit === "function") form.requestSubmit(saveButton);
+				else saveButton.click();
+				return true;
+			}
+			if (!window.jQuery || !jQuery.fn.dialog) {
+				var typed = window.prompt(data.detectedLabel + ": " + (data.detectedName || supplierName.value) + "\n\n" + data.instructions, "");
+				if (typed === null) return;
+				acceptTypedName({ value: typed }, null, null);
+				return;
+			}
+			var content = document.createElement("div");
+			var instructions = document.createElement("p");
+			instructions.textContent = data.instructions;
+			content.appendChild(instructions);
+			var detected = document.createElement("p");
+			var detectedLabel = document.createElement("strong");
+			detectedLabel.textContent = data.detectedLabel + ": ";
+			detected.appendChild(detectedLabel);
+			detected.appendChild(document.createTextNode(data.detectedName || supplierName.value));
+			content.appendChild(detected);
+			var input = document.createElement("input");
+			input.type = "text";
+			input.className = "flat centpercent";
+			input.autocomplete = "off";
+			input.placeholder = data.placeholder;
+			content.appendChild(input);
+			var error = document.createElement("div");
+			error.className = "error small";
+			error.style.display = "none";
+			content.appendChild(error);
+			jQuery(content).dialog({
+				modal: true,
+				title: data.title,
+				width: Math.min(520, Math.max(320, window.innerWidth - 40)),
+				open: function () { input.focus(); },
+				close: function () { jQuery(this).dialog("destroy").remove(); },
+				buttons: [
+					{ text: data.cancel, click: function () { jQuery(this).dialog("close"); } },
+					{ text: data.confirm, click: function () { acceptTypedName(input, error, content); } }
+				]
+			});
+		});
+	}
+
 	var bankRadios = document.querySelectorAll("input[name=bank_mode]");
 	var existingBank = document.getElementById("auvorechnungsimport-existing-bank-row");
 	var newBankRows = document.querySelectorAll(".auvorechnungsimport-bank-new-row");
