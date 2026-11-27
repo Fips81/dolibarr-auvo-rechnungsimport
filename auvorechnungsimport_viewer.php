@@ -28,17 +28,25 @@ if ($id <= 0 || $object->fetch($id) <= 0 || empty($object->filepath)) accessforb
 
 $fullpath = realpath(DOL_DATA_ROOT.'/auvorechnungsimport/'.$object->filepath);
 $basedir = realpath(DOL_DATA_ROOT.'/auvorechnungsimport');
-if ($fullpath === false || $basedir === false || strncmp($fullpath, $basedir, strlen($basedir)) !== 0 || !is_readable($fullpath)) accessforbidden('Not found');
-
-$einvoice = auvorechnungsimport_load_einvoice($fullpath);
-if ($einvoice === null) accessforbidden('No structured invoice data');
+$basedirPrefix = $basedir !== false ? rtrim($basedir, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR : '';
+if ($fullpath === false || $basedir === false || strncmp($fullpath, $basedirPrefix, strlen($basedirPrefix)) !== 0 || !is_readable($fullpath)) accessforbidden('Not found');
 
 $title = $object->ref.' - '.$langs->trans('AuvoRechnungsimportShowStructured');
-llxHeader('', $title);
+$einvoice = auvorechnungsimport_load_einvoice($fullpath);
+if ($einvoice === null) {
+	http_response_code(422);
+	llxHeader('', $title);
+	print '<div class="error">'.$langs->trans('AuvoRechnungsimportErrNotEInvoice').'</div>';
+	$backUrl = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.(int) $object->id;
+	print '<a href="'.dol_escape_htmltag($backUrl).'">'.img_picto('', 'back', 'class="pictofixedwidth"').$langs->trans('AuvoRechnungsimportBackToReview').'</a>';
+	llxFooter();
+	exit;
+}
+
+llxHeader('', $title, '', '', 0, 0, '', '', '', 'auvorechnungsimport-detached-viewer-page');
 $cssPath = __DIR__.'/css/auvorechnungsimport_review.css';
 $cssVersion = is_file($cssPath) ? filemtime($cssPath) : 1;
 print '<link rel="stylesheet" href="'.dol_buildpath('/auvorechnungsimport/css/auvorechnungsimport_review.css', 1).'?v='.(int) $cssVersion.'">';
-print '<style>#id-top,#id-left{display:none!important}#id-right{width:100%!important;margin:0!important}#id-container{padding:0!important;margin:0!important}.auvorechnungsimport-detached-viewer{max-width:none;margin:12px!important}.auvorechnungsimport-detached-back{margin-bottom:10px}</style>';
 print '<div class="fiche auvorechnungsimport-detached-viewer">';
 print '<div class="auvorechnungsimport-detached-back"><a href="'.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.(int) $object->id.'">'.img_picto('', 'back', 'class="pictofixedwidth"').$langs->trans('AuvoRechnungsimportBackToReview').'</a></div>';
 print '<details class="auvorechnungsimport-structured-einvoice" open>';

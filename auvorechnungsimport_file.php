@@ -40,7 +40,8 @@ if ($id <= 0 || $object->fetch($id) <= 0 || empty($object->filepath)) {
 
 $fullpath = realpath(DOL_DATA_ROOT.'/auvorechnungsimport/'.$object->filepath);
 $basedir = realpath(DOL_DATA_ROOT.'/auvorechnungsimport');
-if ($fullpath === false || $basedir === false || strncmp($fullpath, $basedir, strlen($basedir)) !== 0 || !is_readable($fullpath)) {
+$basedirPrefix = $basedir !== false ? rtrim($basedir, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR : '';
+if ($fullpath === false || $basedir === false || strncmp($fullpath, $basedirPrefix, strlen($basedirPrefix)) !== 0 || !is_readable($fullpath)) {
 	accessforbidden('Not found');
 }
 

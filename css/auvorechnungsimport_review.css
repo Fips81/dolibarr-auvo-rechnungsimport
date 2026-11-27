@@ -1,4 +1,9 @@
 #id-left{transition:width .18s ease,min-width .18s ease,max-width .18s ease}
+body.auvorechnungsimport-detached-viewer-page #id-top,body.auvorechnungsimport-detached-viewer-page #id-left{display:none!important}
+body.auvorechnungsimport-detached-viewer-page #id-right{width:100%!important;margin:0!important}
+body.auvorechnungsimport-detached-viewer-page #id-container{padding:0!important;margin:0!important}
+body.auvorechnungsimport-detached-viewer-page .auvorechnungsimport-detached-viewer{max-width:none;margin:12px!important}
+body.auvorechnungsimport-detached-viewer-page .auvorechnungsimport-detached-back{margin-bottom:10px}
 body.auvorechnungsimport-menu-hidden #id-left{display:none!important;width:0!important;min-width:0!important;max-width:0!important}
 body.auvorechnungsimport-menu-hidden #id-right{display:block!important;width:100%!important;margin-left:0!important}
 #auvorechnungsimport-menu-toggle{position:fixed;z-index:1200;left:0;top:50%;width:25px;height:38px;padding:0;border:1px solid #bbb;border-left:0;border-radius:0 4px 4px 0;background:var(--colorbackbody);cursor:pointer;box-shadow:1px 1px 4px #888}
@@ -49,8 +54,6 @@ body.auvorechnungsimport-menu-hidden.auvorechnungsimport-menu-peek #id-right{mar
 .auvorechnungsimport-viewer-restore button{width:24px;height:24px;padding:0;color:#28677f}
 .auvorechnungsimport-detach-viewer{display:inline-flex;align-items:center;justify-content:center;gap:5px;color:#28677f;text-decoration:none}
 .auvorechnungsimport-detach-viewer:hover{color:#17495c;text-decoration:underline}
-.auvorechnungsimport-structured-einvoice summary .auvorechnungsimport-detach-viewer{margin-left:auto;font-size:13px}
-.auvorechnungsimport-structured-einvoice summary .auvorechnungsimport-detach-viewer .fas{font-size:13px}
 .auvorechnungsimport-structured-einvoice summary .auvorechnungsimport-structured-einvoice-collapse{margin-left:8px}
 .auvorechnungsimport-structured-einvoice-content,.auvorechnungsimport-einvoice{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
 .auvorechnungsimport-einvoice .fichecenter{display:flex;gap:10px;width:100%;min-width:0;margin:0}
