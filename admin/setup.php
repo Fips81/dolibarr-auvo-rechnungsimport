@@ -40,6 +40,15 @@ if ($action == 'update') {
 		dolibarr_set_const($db, $const, trim(GETPOST($const, 'alphanohtml')), 'chaine', 0, '', $conf->entity);
 	}
 	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER', GETPOSTINT('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? 1 : 0, 'chaine', 0, '', $conf->entity);
+	$spamHeader = trim(GETPOST('AUVORECHNUNGSIMPORT_SPAM_HEADER', 'alphanohtml'));
+	$spamValue = trim(GETPOST('AUVORECHNUNGSIMPORT_SPAM_VALUE', 'alphanohtml'));
+	if ((($spamHeader === '') !== ($spamValue === '')) || ($spamHeader !== '' && !preg_match('/^[A-Za-z0-9-]{1,78}$/', $spamHeader)) || preg_match('/[\r\n]/', $spamValue) || strlen($spamValue) > 255) {
+		$spamHeader = '';
+		$spamValue = '';
+		setEventMessages($langs->trans('AuvoRechnungsimportSpamHeaderInvalid'), null, 'errors');
+	}
+	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_SPAM_HEADER', $spamHeader, 'chaine', 0, '', $conf->entity);
+	dolibarr_set_const($db, 'AUVORECHNUNGSIMPORT_SPAM_VALUE', $spamValue, 'chaine', 0, '', $conf->entity);
 	setEventMessages($langs->trans('SetupSaved'), null, 'mesgs');
 	header('Location: '.$_SERVER['PHP_SELF']);
 	exit;
@@ -67,6 +76,11 @@ foreach (array('AUVORECHNUNGSIMPORT_KEYWORDS_COST' => 'AuvoRechnungsimportKeywor
 
 print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportAutocreateSupplier').'</td><td>';
 print '<input type="checkbox" name="AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER" value="1"'.(getDolGlobalInt('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER') ? ' checked' : '').'> <span class="opacitymedium">'.$langs->trans('AuvoRechnungsimportAutocreateSupplierHelp').'</span>';
+print '</td></tr>';
+
+print '<tr class="oddeven"><td>'.$langs->trans('AuvoRechnungsimportSpamHeader').'<br><span class="opacitymedium small">'.$langs->trans('AuvoRechnungsimportSpamHeaderHelp').'</span></td><td>';
+print '<input type="text" name="AUVORECHNUNGSIMPORT_SPAM_HEADER" class="minwidth200" value="'.dol_escape_htmltag(getDolGlobalString('AUVORECHNUNGSIMPORT_SPAM_HEADER')).'" placeholder="X-MS-Spam-Detected"> ';
+print '<input type="text" name="AUVORECHNUNGSIMPORT_SPAM_VALUE" class="minwidth150" value="'.dol_escape_htmltag(getDolGlobalString('AUVORECHNUNGSIMPORT_SPAM_VALUE')).'" placeholder="true">';
 print '</td></tr>';
 
 print '</table></div>';

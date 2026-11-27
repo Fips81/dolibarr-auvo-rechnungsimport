@@ -28,6 +28,9 @@ class ImportedInvoice extends CommonObject
 	const STATUS_MATCHED = 3;
 	// Uploaded, waiting for the background analysis (scripts/process_queue.php)
 	const STATUS_QUEUED = 4;
+	const STATUS_SPAM_REVIEW = 5;
+	const STATUS_DUPLICATE = 6;
+	const STATUS_SPAM_CONFIRMED = 7;
 	const STATUS_ERROR = 9;
 
 	public $fields = array(
@@ -40,6 +43,9 @@ class ImportedInvoice extends CommonObject
 		'fk_user_modif' => array('type' => 'integer:User:user/class/user.class.php', 'label' => 'UserModif', 'enabled' => 1, 'position' => 35, 'notnull' => 0, 'visible' => 0),
 		'status' => array('type' => 'integer', 'label' => 'Status', 'enabled' => 1, 'position' => 40, 'notnull' => 1, 'default' => '0', 'visible' => 1, 'arrayofkeyval' => array(
 			self::STATUS_QUEUED => 'AuvoRechnungsimportStatusQueued',
+			self::STATUS_SPAM_REVIEW => 'AuvoRechnungsimportStatusSpamReview',
+			self::STATUS_DUPLICATE => 'AuvoRechnungsimportStatusDuplicate',
+			self::STATUS_SPAM_CONFIRMED => 'AuvoRechnungsimportStatusSpamConfirmed',
 			self::STATUS_PROCESSING => 'AuvoRechnungsimportStatusProcessing',
 			self::STATUS_NEEDS_REVIEW => 'AuvoRechnungsimportStatusNeedsReview',
 			self::STATUS_MATCHED => 'AuvoRechnungsimportStatusMatched',
@@ -48,6 +54,7 @@ class ImportedInvoice extends CommonObject
 		)),
 		'original_filename' => array('type' => 'varchar(255)', 'label' => 'AuvoRechnungsimportOriginalFilename', 'enabled' => 1, 'position' => 50, 'notnull' => 1, 'visible' => 1),
 		'filepath' => array('type' => 'varchar(255)', 'label' => 'AuvoRechnungsimportFilepath', 'enabled' => 1, 'position' => 55, 'notnull' => 1, 'visible' => 0),
+		'source' => array('type' => 'varchar(24)', 'label' => 'AuvoRechnungsimportSource', 'enabled' => 1, 'position' => 58, 'notnull' => 1, 'default' => 'unknown', 'visible' => 0),
 		'extraction_method' => array('type' => 'varchar(32)', 'label' => 'AuvoRechnungsimportExtractionMethod', 'enabled' => 1, 'position' => 60, 'notnull' => 0, 'visible' => 1),
 		'extracted_data' => array('type' => 'text', 'label' => 'AuvoRechnungsimportExtractedData', 'enabled' => 1, 'position' => 65, 'notnull' => 0, 'visible' => 0),
 		'fk_soc' => array('type' => 'integer:Societe:societe/class/societe.class.php', 'label' => 'ThirdParty', 'picto' => 'company', 'enabled' => 1, 'position' => 70, 'notnull' => -1, 'visible' => 1, 'index' => 1),
@@ -66,6 +73,7 @@ class ImportedInvoice extends CommonObject
 	public $status;
 	public $original_filename;
 	public $filepath;
+	public $source;
 	public $extraction_method;
 	public $extracted_data;
 	public $fk_soc;
@@ -192,6 +200,9 @@ class ImportedInvoice extends CommonObject
 		global $langs;
 		$labels = array(
 			self::STATUS_QUEUED => $langs->trans('AuvoRechnungsimportStatusQueued'),
+			self::STATUS_SPAM_REVIEW => $langs->trans('AuvoRechnungsimportStatusSpamReview'),
+			self::STATUS_DUPLICATE => $langs->trans('AuvoRechnungsimportStatusDuplicate'),
+			self::STATUS_SPAM_CONFIRMED => $langs->trans('AuvoRechnungsimportStatusSpamConfirmed'),
 			self::STATUS_PROCESSING => $langs->trans('AuvoRechnungsimportStatusProcessing'),
 			self::STATUS_NEEDS_REVIEW => $langs->trans('AuvoRechnungsimportStatusNeedsReview'),
 			self::STATUS_MATCHED => $langs->trans('AuvoRechnungsimportStatusMatched'),
@@ -204,6 +215,9 @@ class ImportedInvoice extends CommonObject
 		}
 		$classes = array(
 			self::STATUS_QUEUED => 'status0',
+			self::STATUS_SPAM_REVIEW => 'status8',
+			self::STATUS_DUPLICATE => 'status4',
+			self::STATUS_SPAM_CONFIRMED => 'status4',
 			self::STATUS_PROCESSING => 'status3',
 			self::STATUS_NEEDS_REVIEW => 'status1',
 			self::STATUS_MATCHED => 'status2',

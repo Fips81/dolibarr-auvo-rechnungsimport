@@ -69,6 +69,7 @@ if ($action == 'upload' && $user->hasRight('auvorechnungsimport', 'imports', 'wr
 		$object->date_creation = dol_now();
 		$object->fk_user_creat = $user->id;
 		$object->original_filename = $origname;
+		$object->source = 'manual';
 		$object->filepath = '';
 		$object->status = ImportedInvoice::STATUS_QUEUED;
 
@@ -122,6 +123,8 @@ $searchStatus = GETPOST('search_status', 'intcomma');
 $views = array(
 	ImportedInvoice::STATUS_NEEDS_REVIEW.','.ImportedInvoice::STATUS_MATCHED => 'AuvoRechnungsimportFilterToReview',
 	ImportedInvoice::STATUS_QUEUED.','.ImportedInvoice::STATUS_PROCESSING => 'AuvoRechnungsimportStatusQueued',
+	(string) ImportedInvoice::STATUS_SPAM_REVIEW => 'AuvoRechnungsimportStatusSpamReview',
+	ImportedInvoice::STATUS_DUPLICATE.','.ImportedInvoice::STATUS_SPAM_CONFIRMED => 'AuvoRechnungsimportMenuIrrelevant',
 	(string) ImportedInvoice::STATUS_ERROR => 'AuvoRechnungsimportStatusError',
 	(string) ImportedInvoice::STATUS_IMPORTED => 'AuvoRechnungsimportStatusImported',
 );
@@ -191,6 +194,10 @@ if ($pending > 0) {
 $toReview = $countOf(ImportedInvoice::STATUS_NEEDS_REVIEW.','.ImportedInvoice::STATUS_MATCHED);
 if ($toReview > 0) {
 	print '<div class="marginbottomonly"><a class="button" href="'.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.auvorechnungsimport_next_to_review($db, 0).'">'.$langs->trans('AuvoRechnungsimportReviewNextBtn', $toReview).'</a></div>';
+}
+$spamToReview = $counts[ImportedInvoice::STATUS_SPAM_REVIEW] ?? 0;
+if ($spamToReview > 0) {
+	print '<div class="marginbottomonly"><a class="button buttonDelete" href="'.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.auvorechnungsimport_next_to_review($db, 0, true).'">'.$langs->trans('AuvoRechnungsimportReviewSpamBtn', $spamToReview).'</a></div>';
 }
 
 if ($mode === 'upload') {

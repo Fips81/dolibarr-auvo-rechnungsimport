@@ -54,6 +54,30 @@ Gegenstück zu [AuVo E-Rechnung](https://github.com/Fips81/dolibarr-auvo-erechnu
 4. Optional in den Moduleinstellungen: OCR-Sprachen und -Seitenzahl,
    Stichwörter für Kosten- und Weglass-Positionen.
 
+### Optional: E-Mail-Sammler
+
+Wenn das Dolibarr-Modul **E-Mail-Sammler** aktiviert ist, füge bei den
+Aktionen eines Sammlers **In Rechnungsimport übernehmen** hinzu. Dadurch werden
+nicht leere PDF- und XML-Anhänge als Rechnungsimporte eingereiht. Das Modul
+startet seinen vorhandenen Hintergrundprozess, nachdem der Sammler seine
+Datenbanktransaktion abgeschlossen hat. Das Cron-Modul und BlockedLog sind
+nicht erforderlich. Kann der Prozess nicht gestartet werden, bleiben die
+Anhänge in der Warteschlange und der Fehler wird im Dolibarr-Log vermerkt.
+Aktiviere nach dem Hinzufügen der Aktion AuVo Rechnungsimport einmal aus und
+wieder ein, damit Dolibarr die registrierten Hook-Kontexte aktualisiert.
+
+Der E-Mail-Sammler verbindet sich mit dem vom Administrator eingerichteten
+IMAP-Dienst. Die Anhänge werden im Dokumentenverzeichnis von Dolibarr für die
+Prüfung gespeichert und durchlaufen die konfigurierten Datei-Checks,
+einschließlich eines aktivierten Virenscanners. Für den Umgang mit Daten durch
+einen solchen Scanner gelten dessen eigene Einstellungen. In den
+Moduleinstellungen kann optional ein Spam-Header mit erwartetem Wert
+konfiguriert werden. Passende Anhänge werden vor der Analyse zur Prüfung
+zurückgehalten und können freigegeben oder als Spam bestätigt werden.
+Vorhandene Hinweise auf gleiche Rechnungsnummer und gleichen Betrag können auf
+der Importkarte als Duplikat bestätigt werden. Bestätigte Importe bleiben in
+der Ansicht **Spam & Duplikate** verfügbar.
+
 Danach gibt es im Hauptmenü den Eintrag **Eingangsrechnungen**.
 
 **Update:** Ordner `custom/auvorechnungsimport` durch den neuen ersetzen

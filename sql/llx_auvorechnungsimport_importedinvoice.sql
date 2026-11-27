@@ -9,6 +9,7 @@ CREATE TABLE llx_auvorechnungsimport_importedinvoice (
 	status integer DEFAULT 0 NOT NULL,
 	original_filename varchar(255) NOT NULL,
 	filepath varchar(255) NOT NULL,
+	source varchar(24) DEFAULT 'unknown' NOT NULL,
 	extraction_method varchar(32),
 	extracted_data text,
 	fk_soc integer,
