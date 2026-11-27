@@ -1,6 +1,89 @@
 (function () {
 	"use strict";
 
+	function setStructuredLinkState(link, detached) {
+		if (!link.dataset.showLabel) return;
+		var icon = document.createElement("span");
+		icon.className = "fas " + (detached ? "fa-eye" : "fa-external-link-alt");
+		icon.setAttribute("aria-hidden", "true");
+		link.replaceChildren(icon, document.createTextNode(" " + (detached ? link.dataset.showLabel : link.dataset.openLabel)));
+		if (detached) {
+			link.dataset.restoreTarget = link.dataset.detachTarget;
+			delete link.dataset.detachTarget;
+			link.href = "#";
+			link.removeAttribute("target");
+			link.removeAttribute("rel");
+			link.title = link.dataset.showLabel;
+			link.setAttribute("aria-label", link.dataset.showLabel);
+		} else {
+			link.dataset.detachTarget = link.dataset.restoreTarget;
+			delete link.dataset.restoreTarget;
+			link.href = link.dataset.detachUrl;
+			link.target = "_blank";
+			link.rel = "noopener";
+			link.title = link.dataset.openLabel;
+			link.setAttribute("aria-label", link.dataset.openLabel);
+		}
+	}
+	function syncDetachedViewState() {
+		var layout = document.getElementById("auvorechnungsimport-review-layout");
+		var preview = document.getElementById("auvorechnungsimport-review-preview");
+		var splitter = document.getElementById("auvorechnungsimport-review-splitter");
+		if (!layout || !preview) return;
+		var viewerNodes = preview.querySelectorAll("#auvorechnungsimport-structured-viewer, #auvorechnungsimport-pdf-viewer");
+		var hasVisibleViewer = Array.prototype.some.call(viewerNodes, function (viewer) { return !viewer.hidden && !viewer.closest("[hidden]"); });
+		var hasInlineRestoreLink = Array.prototype.some.call(preview.querySelectorAll(".auvorechnungsimport-detach-viewer[data-restore-target]"), function (link) { return !link.closest("[hidden]"); });
+		var hasDetachedViewer = Array.prototype.some.call(viewerNodes, function (viewer) { return viewer.hidden; });
+		preview.hidden = !hasVisibleViewer && !hasInlineRestoreLink;
+		layout.classList.toggle("is-detached", !hasVisibleViewer);
+		if (splitter) splitter.hidden = !hasVisibleViewer;
+		var restore = document.getElementById("auvorechnungsimport-viewer-restore");
+		if (restore) {
+			restore.classList.toggle("is-split", hasVisibleViewer);
+			restore.classList.toggle("is-form-only", !hasVisibleViewer);
+			restore.style.display = hasDetachedViewer ? "flex" : "none";
+		}
+	}
+	document.querySelectorAll(".auvorechnungsimport-detach-viewer").forEach(function (link) {
+		link.addEventListener("click", function (event) {
+			event.stopPropagation();
+			if (link.dataset.restoreTarget) {
+				event.preventDefault();
+				var restoreTarget = document.getElementById(link.dataset.restoreTarget);
+				if (restoreTarget) restoreTarget.hidden = false;
+				setStructuredLinkState(link, false);
+				syncDetachedViewState();
+				return;
+			}
+			var targetId = link.dataset.detachTarget;
+			if (!targetId) return;
+			window.setTimeout(function () {
+				var target = document.getElementById(targetId);
+				if (target) target.hidden = true;
+				setStructuredLinkState(link, true);
+				syncDetachedViewState();
+			}, 0);
+		});
+	});
+	var restoreViewer = document.getElementById("auvorechnungsimport-viewer-restore-button");
+	if (restoreViewer) {
+		restoreViewer.addEventListener("click", function () {
+			var preview = document.getElementById("auvorechnungsimport-review-preview");
+			var layout = document.getElementById("auvorechnungsimport-review-layout");
+			var splitter = document.getElementById("auvorechnungsimport-review-splitter");
+			if (preview) preview.querySelectorAll("#auvorechnungsimport-structured-viewer, #auvorechnungsimport-pdf-viewer").forEach(function (viewer) { viewer.hidden = false; });
+			document.querySelectorAll(".auvorechnungsimport-detach-viewer[data-restore-target]").forEach(function (link) { setStructuredLinkState(link, false); });
+			if (preview) preview.hidden = false;
+			if (splitter) splitter.hidden = false;
+			if (layout) layout.classList.remove("is-detached");
+			var restore = document.getElementById("auvorechnungsimport-viewer-restore");
+			if (restore) {
+				restore.classList.remove("is-split", "is-form-only");
+				restore.style.display = "none";
+			}
+		});
+	}
+
 	var reviewFormContainer = document.getElementById("auvorechnungsimport-review-form");
 	var dueDateInput = document.getElementById("auvorechnungsimport-due-date");
 	if (reviewFormContainer && dueDateInput && window.jQuery) {

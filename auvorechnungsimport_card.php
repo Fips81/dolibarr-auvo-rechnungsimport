@@ -882,37 +882,55 @@ $reviewCssPath = __DIR__.'/css/auvorechnungsimport_review.css';
 $reviewCssVersion = is_file($reviewCssPath) ? filemtime($reviewCssPath) : 1;
 print '<link rel="stylesheet" href="'.dol_buildpath('/auvorechnungsimport/css/auvorechnungsimport_review.css', 1).'?v='.(int) $reviewCssVersion.'">';
 print '<button type="button" id="auvorechnungsimport-menu-toggle" aria-label="Dolibarr-Menü anzeigen" title="Dolibarr-Menü anzeigen"><span class="fas fa-angle-right valignmiddle btnTitle-icon" aria-hidden="true"></span></button>';
-print '<div id="auvorechnungsimport-review-shell"><div class="auvorechnungsimport-review-width-control"><button type="button" id="auvorechnungsimport-review-width-toggle" class="flat" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportToggleWideReview')).'" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportToggleWideReview')).'"><span class="fas fa-expand" aria-hidden="true"></span></button></div>';
-print '<div id="auvorechnungsimport-review-layout"><aside id="auvorechnungsimport-review-preview">';
+print '<div id="auvorechnungsimport-review-shell"><div id="auvorechnungsimport-review-layout"><div class="auvorechnungsimport-review-width-control">';
+print '<div id="auvorechnungsimport-viewer-restore" class="auvorechnungsimport-viewer-restore" style="display:none"><button type="button" id="auvorechnungsimport-viewer-restore-button" class="flat" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportRestorePreview')).'" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportRestorePreview')).'"><span class="fas fa-eye" aria-hidden="true"></span></button></div>';
+print '<button type="button" id="auvorechnungsimport-review-width-toggle" class="flat" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportToggleWideReview')).'" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportToggleWideReview')).'"><span class="fas fa-expand" aria-hidden="true"></span></button></div><aside id="auvorechnungsimport-review-preview">';
 $srcfile = DOL_DATA_ROOT.'/auvorechnungsimport/'.$object->filepath;
 if (is_readable($srcfile)) {
 	$fileUrl = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_file.php', 1).'?id='.$object->id;
+	$detachedViewerUrl = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_viewer.php', 1).'?id='.(int) $object->id.'&view=structured';
 	$einvoice = auvorechnungsimport_load_einvoice($srcfile);
 	if (auvorechnungsimport_is_xml_file($srcfile)) {
+		print '<div id="auvorechnungsimport-xml-viewer">';
 		// XML e-invoice: no picture to show - the readable view instead.
-		print '<div class="marginbottomonly"><a href="'.$fileUrl.'">'.img_picto('', 'download', 'class="pictofixedwidth"').$langs->trans('AuvoRechnungsimportDownloadXml').'</a></div>';
+		print '<div class="auvorechnungsimport-viewer-actions marginbottomonly"><a href="'.$fileUrl.'">'.img_picto('', 'download', 'class="pictofixedwidth"').$langs->trans('AuvoRechnungsimportDownloadXml').'</a>';
+		if ($einvoice !== null) print '<a class="auvorechnungsimport-detach-viewer" href="'.$detachedViewerUrl.'" target="_blank" rel="noopener" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportOpenSeparate')).'" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportOpenSeparate')).'" data-detach-target="auvorechnungsimport-structured-viewer" data-detach-url="'.$detachedViewerUrl.'" data-open-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportOpenSeparate')).'" data-show-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportShowStructuredInline')).'"><span class="fas fa-external-link-alt" aria-hidden="true"></span> '.$langs->trans('AuvoRechnungsimportOpenSeparate').'</a>';
+		print '</div>';
 		if ($einvoice !== null) {
-			print auvorechnungsimport_render_einvoice($einvoice, $fileUrl.'&att=');
+			print '<details id="auvorechnungsimport-structured-viewer" class="auvorechnungsimport-structured-einvoice marginbottomonly" open>';
+			print '<summary class="cursorpointer"><span class="fas fa-file-code" aria-hidden="true"></span> '.$langs->trans('AuvoRechnungsimportShowStructured').'<span class="fas fa-chevron-up auvorechnungsimport-structured-einvoice-collapse" aria-hidden="true"></span></summary>';
+			print '<div class="auvorechnungsimport-structured-einvoice-content">'.auvorechnungsimport_render_einvoice($einvoice, $fileUrl.'&att=').'</div>';
+			print '</details>';
 		} else {
 			print '<div class="error">'.$langs->trans('AuvoRechnungsimportErrNotEInvoice').'</div>';
 		}
+		print '</div>';
 	} else {
+		if ($einvoice !== null) {
+			// Put the embedded XML actions above its structured-data panel.
+			$embeddedXmlUrl = $fileUrl.'&embeddedxml=1';
+			print '<div class="auvorechnungsimport-viewer-actions marginbottomonly"><a href="'.$embeddedXmlUrl.'">'.img_picto('', 'download', 'class="pictofixedwidth"').$langs->trans('AuvoRechnungsimportDownloadXml').'</a>';
+			print '<a class="auvorechnungsimport-detach-viewer" href="'.$detachedViewerUrl.'" target="_blank" rel="noopener" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportOpenSeparate')).'" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportOpenSeparate')).'" data-detach-target="auvorechnungsimport-structured-viewer" data-detach-url="'.$detachedViewerUrl.'" data-open-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportOpenSeparate')).'" data-show-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportShowStructuredInline')).'"><span class="fas fa-external-link-alt" aria-hidden="true"></span> '.$langs->trans('AuvoRechnungsimportOpenSeparate').'</a></div>';
+			// Make the embedded structured invoice data visible before the PDF preview.
+			print '<details id="auvorechnungsimport-structured-viewer" class="auvorechnungsimport-structured-einvoice marginbottomonly" open>';
+			print '<summary class="cursorpointer"><span class="fas fa-file-code" aria-hidden="true"></span> '.$langs->trans('AuvoRechnungsimportShowStructured').'<span class="fas fa-chevron-up auvorechnungsimport-structured-einvoice-collapse" aria-hidden="true"></span></summary>';
+			print '<div class="auvorechnungsimport-structured-einvoice-content">'.auvorechnungsimport_render_einvoice($einvoice, $fileUrl.'&att=').'</div>';
+			print '</details>';
+		}
+		print '<div class="auvorechnungsimport-viewer-actions"><a class="auvorechnungsimport-detach-viewer" href="'.$fileUrl.'" target="_blank" rel="noopener" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportOpenPdfSeparate')).'" aria-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportOpenPdfSeparate')).'" data-detach-target="auvorechnungsimport-pdf-viewer" data-detach-url="'.$fileUrl.'" data-open-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportOpenPdfSeparate')).'" data-show-label="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportShowPdfInline')).'"><span class="fas fa-external-link-alt" aria-hidden="true"></span> '.$langs->trans('AuvoRechnungsimportOpenPdfSeparate').'</a></div>';
+		print '<div id="auvorechnungsimport-pdf-viewer" class="auvorechnungsimport-pdf-viewer">';
 		print '<div class="div-table-responsive-no-min marginbottomonly">';
 		print '<div class="center">';
 		print '<iframe class="auvorechnungsimport-review-pdf-frame" src="'.$fileUrl.'" title="'.dol_escape_htmltag($langs->trans('AuvoRechnungsimportOriginalFilename')).'"></iframe>';
 		print '</div>';
 		print '</div>';
-		if ($einvoice !== null) {
-			// ZUGFeRD/Factur-X PDF: the embedded data, collapsed below the picture
-			print '<details class="marginbottomonly"><summary class="cursorpointer">'.$langs->trans('AuvoRechnungsimportShowStructured').'</summary>';
-			print auvorechnungsimport_render_einvoice($einvoice, $fileUrl.'&att=');
-			print '</details>';
-		}
+		print '</div>';
 	}
 }
 
 $dueAjaxUrl = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_card.php', 1).'?id='.(int) $object->id.'&ajax_due_date=1';
-print '</aside><div id="auvorechnungsimport-review-splitter" role="separator" aria-orientation="vertical" aria-label="Breite der Vorschau ändern" aria-valuemin="25" aria-valuemax="65" aria-valuenow="40" tabindex="0"></div><main id="auvorechnungsimport-review-form" data-due-date-url="'.dol_escape_htmltag($dueAjaxUrl).'"><div class="div-table-responsive-no-min">';
+print '</aside><div id="auvorechnungsimport-review-splitter" role="separator" aria-orientation="vertical" aria-label="Breite der Vorschau ändern" aria-valuemin="25" aria-valuemax="65" aria-valuenow="40" tabindex="0"></div><main id="auvorechnungsimport-review-form" data-due-date-url="'.dol_escape_htmltag($dueAjaxUrl).'">';
+print '<div class="div-table-responsive-no-min">';
 if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_fourn > 0) {
 	print '<div class="info">'.$langs->trans('AuvoRechnungsimportAlreadyImported').' ';
 	$invoice = new FactureFournisseur($db);
@@ -1076,14 +1094,22 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 		$calculatedDue = auvorechnungsimport_calculate_due_date($db, dol_stringtotime($dateValueForForm), $conditionId);
 		if ($calculatedDue > 0) $dueValueForForm = dol_print_date($calculatedDue, '%Y-%m-%d');
 	}
-	print '<tr><td>'.$langs->trans('PaymentConditionsShort').'</td><td>';
-	print $form->getSelectConditionsPaiements($conditionId, 'cond_reglement_id', -1, 1);
+	print '<tr><td>'.$langs->trans('PaymentConditionsShort');
+	if ($user->admin) print ' '.info_admin($langs->trans('YouCanChangeValuesForThisListFromDictionarySetup'), 1);
+	print '</td><td>';
+	print $form->getSelectConditionsPaiements($conditionId, 'cond_reglement_id', -1, 1, 1);
 	if (!empty($extracted['payment_terms'])) print ' <span class="opacitymedium small">'.auvorechnungsimport_render_terms($extracted['payment_terms']).'</span>';
 	print '</td></tr>';
 	print '<tr><td>'.$langs->trans('DateDue').'</td><td><input type="date" id="auvorechnungsimport-due-date" name="due_date" value="'.dol_escape_htmltag($dueValueForForm).'"></td></tr>';
-	print '<tr><td>'.$langs->trans('PaymentMode').'</td><td>';
-	$form->select_types_paiements($modeId, 'mode_reglement_id', 'DBIT', 0, 1);
+	print '<tr><td>'.$langs->trans('PaymentMode');
+	if ($user->admin) print ' '.info_admin($langs->trans('YouCanChangeValuesForThisListFromDictionarySetup'), 1);
+	print '</td><td>';
+	$form->select_types_paiements($modeId, 'mode_reglement_id', 'DBIT', 0, 1, 1);
 	print '</td></tr>';
+	$headerNote = auvorechnungsimport_header_note($extracted, auvorechnungsimport_header_labels($langs));
+	if ($headerNote !== '') {
+		print '<tr><td class="titlefield">'.$langs->trans('AuvoRechnungsimportInvoiceHeaderDetails').'</td><td class="opacitymedium small">'.dol_nl2br(dol_escape_htmltag($headerNote)).'</td></tr>';
+	}
 	if ($hasSupplierForReview && $canCreateSupplierAndBank) {
 		print '<tr id="auvorechnungsimport-new-supplier-row"><td colspan="2"><div class="marginbottomonly">';
 		print '<b>'.$langs->trans('AuvoRechnungsimportSupplierCreateDetails').'</b>';
@@ -1207,10 +1233,6 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 		print '</td></tr>';
 	}
 
-	$headerNote = auvorechnungsimport_header_note($extracted, auvorechnungsimport_header_labels($langs));
-	if ($headerNote !== '') {
-		print '<tr><td>'.$langs->trans('NotePrivate').'</td><td class="opacitymedium small">'.dol_nl2br(dol_escape_htmltag($headerNote)).'</td></tr>';
-	}
 	print '</table>';
 
 	$lines = isset($extracted['lines']) && is_array($extracted['lines']) ? $extracted['lines'] : array();

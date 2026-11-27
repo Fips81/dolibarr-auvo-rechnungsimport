@@ -9,10 +9,14 @@ body.auvorechnungsimport-menu-hidden.auvorechnungsimport-menu-peek #id-left{disp
 body.auvorechnungsimport-menu-hidden.auvorechnungsimport-menu-peek #id-right{margin-left:260px}
 #auvorechnungsimport-review-shell{width:calc(100% - var(--auvorechnungsimport-fiche-margin-left, 44px) - var(--auvorechnungsimport-fiche-margin-right, 38px));max-width:none;margin-left:var(--auvorechnungsimport-fiche-margin-left, 44px);margin-right:var(--auvorechnungsimport-fiche-margin-right, 38px)}
 #auvorechnungsimport-review-shell.is-wide{width:100%;max-width:none;margin-left:0}
-.auvorechnungsimport-review-width-control{height:24px;display:flex;justify-content:flex-end;align-items:center}
-#auvorechnungsimport-review-width-toggle{width:24px;height:24px;padding:0;border:0;background:transparent;color:#777;cursor:pointer}
+.auvorechnungsimport-review-width-control{grid-column:1/-1;width:100%;height:28px;display:flex;justify-content:space-between;align-items:center;gap:4px}
+#auvorechnungsimport-review-width-toggle{width:24px;height:24px;margin-left:auto;padding:0;border:0;background:transparent;color:#777;cursor:pointer}
 #auvorechnungsimport-review-width-toggle:hover{color:#333}
 #auvorechnungsimport-review-layout{display:grid;grid-template-columns:minmax(280px,var(--auvorechnungsimport-preview-width,2fr)) 10px minmax(0,3fr);align-items:start}
+#auvorechnungsimport-review-layout.is-detached{display:flex;flex-direction:column;align-items:stretch;gap:12px}
+#auvorechnungsimport-review-layout.is-detached #auvorechnungsimport-review-preview{position:static;width:min(var(--auvorechnungsimport-preview-width,40vw),100%);max-width:100%;margin:0}
+#auvorechnungsimport-review-layout.is-detached #auvorechnungsimport-review-form{width:100%;max-width:none;grid-column:auto}
+#auvorechnungsimport-review-layout.is-detached #auvorechnungsimport-review-splitter{display:none}
 #auvorechnungsimport-review-preview,#auvorechnungsimport-review-form{min-width:0}
 #auvorechnungsimport-review-preview{position:sticky;top:70px}
 #auvorechnungsimport-review-preview iframe{height:calc(100vh - 100px);min-height:600px}
@@ -29,6 +33,30 @@ body.auvorechnungsimport-menu-hidden.auvorechnungsimport-menu-peek #id-right{mar
 .auvorechnungsimport-create-invoice{color:#000}
 .auvorechnungsimport-release-order{background:#e69500!important;color:#fff!important;border-color:#cc8400!important}
 .auvorechnungsimport-einvoice-title{margin:6px 0 10px}
+.auvorechnungsimport-structured-einvoice{margin:0 0 10px;border:1px solid #b8d8e8;border-left:4px solid #4b9db8;border-radius:4px;background:#f2f9fc;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.auvorechnungsimport-structured-einvoice summary{display:flex;align-items:center;gap:8px;padding:10px 12px;color:#28677f;font-weight:600;list-style:none}
+.auvorechnungsimport-structured-einvoice summary::-webkit-details-marker{display:none}
+.auvorechnungsimport-structured-einvoice summary .fas{font-size:16px}
+.auvorechnungsimport-structured-einvoice summary .auvorechnungsimport-structured-einvoice-collapse{margin-left:auto;font-size:12px;transition:transform .15s ease}
+.auvorechnungsimport-structured-einvoice:not([open]) summary .auvorechnungsimport-structured-einvoice-collapse{transform:rotate(180deg)}
+.auvorechnungsimport-structured-einvoice summary:hover{background:#e7f3f8}
+.auvorechnungsimport-structured-einvoice[open] summary{border-bottom:1px solid #d6e8ef}
+.auvorechnungsimport-structured-einvoice-content{padding:10px 12px;max-height:none;overflow:visible}
+.auvorechnungsimport-viewer-actions{display:flex;align-items:center;gap:12px}
+.auvorechnungsimport-viewer-restore{align-items:center;margin:0;padding:0}
+.auvorechnungsimport-viewer-restore.is-split{margin-left:calc(var(--auvorechnungsimport-preview-width, 40vw) + 10px)}
+.auvorechnungsimport-viewer-restore.is-form-only{margin-left:0}
+.auvorechnungsimport-viewer-restore button{width:24px;height:24px;padding:0;color:#28677f}
+.auvorechnungsimport-detach-viewer{display:inline-flex;align-items:center;justify-content:center;gap:5px;color:#28677f;text-decoration:none}
+.auvorechnungsimport-detach-viewer:hover{color:#17495c;text-decoration:underline}
+.auvorechnungsimport-structured-einvoice summary .auvorechnungsimport-detach-viewer{margin-left:auto;font-size:13px}
+.auvorechnungsimport-structured-einvoice summary .auvorechnungsimport-detach-viewer .fas{font-size:13px}
+.auvorechnungsimport-structured-einvoice summary .auvorechnungsimport-structured-einvoice-collapse{margin-left:8px}
+.auvorechnungsimport-structured-einvoice-content,.auvorechnungsimport-einvoice{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+.auvorechnungsimport-einvoice .fichecenter{display:flex;gap:10px;width:100%;min-width:0;margin:0}
+.auvorechnungsimport-einvoice .fichehalfleft,.auvorechnungsimport-einvoice .fichehalfright{float:none;width:calc(50% - 5px);min-width:0;max-width:calc(50% - 5px);margin:0;box-sizing:border-box}
+.auvorechnungsimport-einvoice table.tableforfield{width:100%;max-width:100%;table-layout:fixed}
+.auvorechnungsimport-einvoice td,.auvorechnungsimport-einvoice th{min-width:0;overflow-wrap:anywhere;word-break:break-word}
 .auvorechnungsimport-einvoice-parties,.auvorechnungsimport-einvoice-lines,.auvorechnungsimport-einvoice-totals,.auvorechnungsimport-einvoice-section{margin-top:10px}
 #auvorechnungsimport-review-splitter{position:sticky;top:70px;z-index:5;height:calc(100vh - 100px);min-height:300px;cursor:col-resize;touch-action:none;user-select:none;display:flex;align-items:center;justify-content:center}
 #auvorechnungsimport-review-splitter:before{content:"";width:3px;height:100%;background:#d5d7da;border-radius:2px;transition:background .15s,width .15s}
@@ -79,4 +107,5 @@ body.auvorechnungsimport-resizing{cursor:col-resize!important;user-select:none!i
 	#auvorechnungsimport-review-splitter{display:none}
 	#auvorechnungsimport-review-preview{position:static;margin-bottom:16px}
 	#auvorechnungsimport-review-preview iframe{height:600px}
+	.auvorechnungsimport-viewer-restore.is-split{margin-left:0}
 }
