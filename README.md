@@ -63,8 +63,9 @@ startet seinen vorhandenen Hintergrundprozess, nachdem der Sammler seine
 Datenbanktransaktion abgeschlossen hat. Das Cron-Modul und BlockedLog sind
 nicht erforderlich. Kann der Prozess nicht gestartet werden, bleiben die
 Anhänge in der Warteschlange und der Fehler wird im Dolibarr-Log vermerkt.
-Aktiviere nach dem Hinzufügen der Aktion AuVo Rechnungsimport einmal aus und
-wieder ein, damit Dolibarr die registrierten Hook-Kontexte aktualisiert.
+Nach dem Update auf diese Version AuVo Rechnungsimport einmal deaktivieren und
+wieder aktivieren, damit Dolibarr den Hook registriert und die neue Spalte
+`source` anlegt.
 
 Der E-Mail-Sammler verbindet sich mit dem vom Administrator eingerichteten
 IMAP-Dienst. Die Anhänge werden im Dokumentenverzeichnis von Dolibarr für die
