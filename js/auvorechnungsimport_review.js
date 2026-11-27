@@ -454,5 +454,138 @@
 		input.addEventListener("input", updateTotals);
 		input.addEventListener("change", updateTotals);
 	});
+	var releaseOrderButton = document.getElementById("auvorechnungsimport-create-invoice-release-order");
+	if (releaseOrderButton) {
+		var skipReleaseConfirmation = false;
+		var dialogPending = false;
+		function releaseSummary() {
+			var form = releaseOrderButton.form;
+			var data = releaseOrderButton.dataset;
+			var supplierMode = form.querySelector('input[name="supplier_mode"]:checked');
+			var supplierName = "";
+			if (supplierMode && supplierMode.value === "new") {
+				var newName = form.querySelector('[name="supplier_value_name"]');
+				supplierName = newName ? newName.value.trim() : "";
+			} else {
+				var supplierSelect = form.querySelector("#fk_soc");
+				if (supplierSelect && supplierSelect.selectedIndex >= 0) supplierName = supplierSelect.options[supplierSelect.selectedIndex].textContent.trim();
+			}
+			var reference = form.querySelector('[name="ref_supplier"]');
+			var invoiceDate = form.querySelector("#auvorechnungsimport-invoice-date");
+			var dueDate = form.querySelector("#auvorechnungsimport-due-date");
+			var bankMode = form.querySelector('input[name="bank_mode"]:checked');
+			var bankIban = form.querySelector('[name="bank_iban"]');
+			var currency = data.confirmCurrency || "EUR";
+			var detectedGross = feedback && feedback.dataset.expectedGross !== "" ? formatAmount(parseFloat(feedback.dataset.expectedGross)) + " " + currency : "—";
+			var linesGross = document.getElementById("auvorechnungsimport-sum-gross");
+			var lineCount = 0;
+			var taxBreakdown = Object.create(null);
+			lineTable.querySelectorAll("tr.auvorechnungsimport-line").forEach(function (row) {
+				var mode = row.querySelector("select.auvorechnungsimport-mode");
+				var label = row.querySelector("input[name^=line_label_]");
+				var ref = row.querySelector("input[name^=line_ref_supplier_]");
+				var qty = row.querySelector(".auvorechnungsimport-line-qty");
+				var price = row.querySelector(".auvorechnungsimport-line-price");
+				var vatInput = row.querySelector(".auvorechnungsimport-line-vat");
+				var product = row.querySelector(".auvorechnungsimport-product-id");
+				var hasInput = (label && label.value.trim()) || (ref && ref.value.trim()) || (qty && qty.value.trim()) || (price && price.value.trim()) || (product && parseInt(product.value, 10) > 0);
+				if (mode && mode.value !== "skip" && hasInput) {
+					lineCount++;
+					var vatRate = vatInput && vatInput.value.trim() !== "" ? parseAmount(vatInput.value) : null;
+					if (vatRate !== null) {
+						var vatKey = String(vatRate);
+						taxBreakdown[vatKey] = (taxBreakdown[vatKey] || 0) + 1;
+					}
+				}
+			});
+			var taxSummary = Object.keys(taxBreakdown).sort(function (a, b) { return parseFloat(b) - parseFloat(a); }).map(function (rate) {
+				var numericRate = parseFloat(rate);
+				var formattedRate = Number.isInteger(numericRate) ? String(numericRate) : formatAmount(numericRate).replace(/([,.])?0+$/, "");
+				return formattedRate + " % (" + taxBreakdown[rate] + ")";
+			}).join(", ") || "—";
+			var rows = [
+				[data.confirmSupplier, supplierName || "—"],
+				[data.confirmReference, reference ? reference.value.trim() || "—" : "—"],
+				[data.confirmDate, invoiceDate ? invoiceDate.value || "—" : "—"],
+				[data.confirmDueDate, dueDate ? dueDate.value || "—" : "—"],
+				[data.confirmDetected, detectedGross],
+				[data.confirmLinesTotal, (linesGross ? linesGross.textContent.trim() : "—") + " " + currency],
+				[data.confirmLinesCount, String(lineCount) + " · " + taxSummary]
+			];
+			if (bankMode && bankMode.value === "new") rows.push([data.confirmIban, bankIban ? bankIban.value.trim() || "—" : "—"]);
+			var effects = [];
+			if (supplierMode && supplierMode.value === "new") effects.push(data.confirmSupplierCreate);
+			if (bankMode && bankMode.value === "new") effects.push(data.confirmBankCreate);
+			var updatePrice = form.querySelector('input[name="update_buyprice"]');
+			if (updatePrice && updatePrice.checked) effects.push(data.confirmPriceUpdate);
+			effects.push(data.confirmInvoiceDraft, data.confirmOrder);
+			return { rows: rows, effects: effects, intro: data.confirmIntro, effectsLabel: data.confirmEffects };
+		}
+		function confirmRelease() {
+			if (dialogPending) return;
+			var summary = releaseSummary();
+			var lines = summary.rows.map(function (row) { return row[0] + ": " + row[1]; }).join("\n");
+			var effects = summary.effects.join("\n• ");
+			if (!window.jQuery || !jQuery.fn.dialog) {
+				if (window.confirm(summary.intro + "\n\n" + lines + "\n\n" + summary.effectsLabel + ":\n• " + effects)) {
+					skipReleaseConfirmation = true;
+					releaseOrderButton.click();
+				}
+				return;
+			}
+			var content = document.createElement("div");
+			var intro = document.createElement("p");
+			intro.textContent = summary.intro;
+			content.appendChild(intro);
+			var table = document.createElement("table");
+			table.className = "noborder centpercent";
+			summary.rows.forEach(function (row) {
+				var tr = document.createElement("tr");
+				var label = document.createElement("td");
+				var value = document.createElement("td");
+				label.className = "titlefield";
+				label.textContent = row[0];
+				value.textContent = row[1];
+				tr.appendChild(label);
+				tr.appendChild(value);
+				table.appendChild(tr);
+			});
+			content.appendChild(table);
+			var effectsTitle = document.createElement("p");
+			effectsTitle.className = "margin top";
+			effectsTitle.textContent = summary.effectsLabel;
+			content.appendChild(effectsTitle);
+			var effectsList = document.createElement("ul");
+			summary.effects.forEach(function (effect) {
+				var item = document.createElement("li");
+				item.textContent = effect;
+				effectsList.appendChild(item);
+			});
+			content.appendChild(effectsList);
+			dialogPending = true;
+			jQuery(content).dialog({
+				modal: true,
+				title: releaseOrderButton.dataset.confirmTitle,
+				width: Math.min(600, Math.max(320, window.innerWidth - 40)),
+				close: function () {
+					dialogPending = false;
+					jQuery(this).dialog("destroy").remove();
+				},
+				buttons: [
+					{ text: releaseOrderButton.dataset.confirmCancel, click: function () { jQuery(this).dialog("close"); } },
+					{ text: releaseOrderButton.dataset.confirmContinue, click: function () {
+						jQuery(this).dialog("close");
+						skipReleaseConfirmation = true;
+						releaseOrderButton.click();
+					} }
+				]
+			});
+		}
+		releaseOrderButton.addEventListener("click", function (event) {
+			if (skipReleaseConfirmation) { skipReleaseConfirmation = false; return; }
+			event.preventDefault();
+			confirmRelease();
+		});
+	}
 	updateTotals();
 })();

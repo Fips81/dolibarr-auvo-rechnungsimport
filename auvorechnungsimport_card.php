@@ -1393,7 +1393,27 @@ if ($object->status == ImportedInvoice::STATUS_IMPORTED && $object->fk_facture_f
 	print '<button type="submit" name="action" value="savereview" class="button auvorechnungsimport-save-review">'.$langs->trans('AuvoRechnungsimportSaveReview').'</button>';
 	print '<button type="submit" name="action" id="auvorechnungsimport-create-invoice" value="createinvoice" class="button auvorechnungsimport-create-invoice">'.$langs->trans('AuvoRechnungsimportCreateInvoiceBtn').'</button>';
 	if ($allowReleaseOrderButton && empty($extracted['is_credit_note'])) {
-		print ' <button type="submit" name="action" id="auvorechnungsimport-create-invoice-release-order" value="createinvoice_releaseorder" class="butAction button auvorechnungsimport-release-order">'.$langs->trans('AuvoRechnungsimportCreateInvoiceAndReleaseOrderBtn').'</button>';
+		print ' <button type="submit" name="action" id="auvorechnungsimport-create-invoice-release-order" value="createinvoice_releaseorder" class="butAction button auvorechnungsimport-release-order"'
+			.' data-confirm-title="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmTitle')).'"'
+			.' data-confirm-currency="'.dol_escape_htmltag($extracted['currency'] ?? 'EUR').'"'
+			.' data-confirm-intro="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmIntro')).'"'
+			.' data-confirm-supplier="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmSupplier')).'"'
+			.' data-confirm-reference="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmReference')).'"'
+			.' data-confirm-date="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmDate')).'"'
+			.' data-confirm-due-date="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmDueDate')).'"'
+			.' data-confirm-iban="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmIban')).'"'
+			.' data-confirm-detected="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmDetected')).'"'
+			.' data-confirm-lines-total="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmLinesTotal')).'"'
+			.' data-confirm-lines-count="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmLinesCount')).'"'
+			.' data-confirm-effects="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmEffects')).'"'
+			.' data-confirm-supplier-create="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmSupplierCreate')).'"'
+			.' data-confirm-bank-create="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmBankCreate')).'"'
+			.' data-confirm-price-update="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmPriceUpdate')).'"'
+			.' data-confirm-order="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmOrder')).'"'
+			.' data-confirm-invoice-draft="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmInvoiceDraft')).'"'
+			.' data-confirm-cancel="'.dol_escape_htmltag($langs->transnoentitiesnoconv('Cancel')).'"'
+			.' data-confirm-continue="'.dol_escape_htmltag($langs->transnoentitiesnoconv('AuvoRechnungsimportReleaseConfirmContinue')).'">'
+			.$langs->trans('AuvoRechnungsimportCreateInvoiceAndReleaseOrderBtn').'</button>';
 	}
 	print '</div>';
 	print '</form>';
