@@ -196,7 +196,14 @@ function auvorechnungsimport_parse_fields($text)
 	$result = array(
 		'supplier_name' => '',
 		'supplier_name_confident' => false,
+		'supplier_address' => array(),
+		'supplier_country' => '',
+		'supplier_email' => '',
+		'supplier_phone' => '',
 		'supplier_vat' => '',
+		'supplier_tax_id' => '',
+		'iban' => '',
+		'bic' => '',
 		'invoice_ref' => '',
 		'invoice_date' => null,
 		'amount_ttc' => null,
@@ -218,18 +225,30 @@ function auvorechnungsimport_parse_fields($text)
 	// whichever label happens to come first in the text, which is often the wrong one.
 	$vatLabels = 'USt[.\s-]*Ident(?:ifikations)?[.\s-]*Nr\.?|USt-?IdNr\.?|UStIdNr\.?|Umsatzsteuer-?Identifikationsnummer|Umsatzsteuer-?ID(?:Nr\.?)?|Id[.\s]*-?Nr\.?|UID|VAT[ -]?(?:ID|No\.?|Reg(?:istration)?\.?\s*No\.?)?|TVA(?:\s*intracommunautaire)?|N°?\s*TVA';
 	$taxRefLabels = 'Steuernummer|Steuer-?Nr\.?|SIRET|SIREN';
-	foreach (array($vatLabels, $taxRefLabels) as $labels) {
-		if (preg_match('/(?:'.$labels.')[ \t]*[:.]?[ \t]*([A-Z]{0,2}[ \t]?[0-9][0-9 \t\/]{3,18})/iu', $text, $m)) {
-			$candidate = auvorechnungsimport_normalize_vat(trim($m[1]));
-			if (preg_match('/\d{5,}/', $candidate)) {
-				$result['supplier_vat'] = $candidate;
-				break;
-			}
-		}
+	if (preg_match('/(?:'.$vatLabels.')[ \t]*[:.]?[ \t]*([A-Z]{0,2}[ \t]?[0-9][0-9 \t\/]{3,18})/iu', $text, $m)) {
+		$candidate = auvorechnungsimport_normalize_vat(trim($m[1]));
+		if (preg_match('/\d{5,}/', $candidate)) $result['supplier_vat'] = $candidate;
+	}
+	if (preg_match('/(?:'.$taxRefLabels.')[ \t]*[:.]?[ \t]*([A-Z]{0,2}[ \t]?[0-9][0-9 \t\/]{3,18})/iu', $text, $m)) {
+		$candidate = trim(preg_replace('/\s+/', ' ', $m[1]));
+		if (preg_match('/\d{5,}/', $candidate)) $result['supplier_tax_id'] = $candidate;
+	}
+
+	// Contact details are often printed in the sender's letterhead rather than
+	// beside a label elsewhere in the invoice. Email addresses are distinctive;
+	// phone numbers are accepted only after a phone label to avoid matching refs.
+	if (preg_match('/(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?![A-Z0-9.-])/iu', $text, $emailMatch)) {
+		$result['supplier_email'] = trim($emailMatch[0]);
+	}
+	if (preg_match('/(?:Tel(?:efon)?\.?|Telefonnummer|Phone)\s*[:.]?\s*(\+?\d[\d\s().\/-]{5,}\d)(?=\s*(?:Fax\b|E-?Mail\b|$))/imu', $text, $phoneMatch)) {
+		$phone = trim($phoneMatch[1]);
+		if (preg_match_all('/\d/', $phone) >= 7) $result['supplier_phone'] = $phone;
 	}
 
 	// Invoice number: look for a label followed by a token.
-	if (preg_match('/(?:Rechnung(?:s)?[ \t]*-?Nr\.?|Rechnungsnummer|Beleg(?:s)?[ \t]*-?Nr\.?|Belegnummer|Invoice\s*No\.?|Facture\s*n[°o]\.?|N[°o]\s*de\s*facture)[ \t]*[:.]?[ \t]*([A-Za-z0-9.\-\/]{3,30})/iu', $text, $m)) {
+	// Some issuers (e.g. Telekom) group invoice numbers with spaces. Keep the
+	// complete label value instead of mistaking its first group for the ref.
+	if (preg_match('/(?:Rechnung(?:s)?[ \t]*-?Nr\.?|Rechnungsnummer|Beleg(?:s)?[ \t]*-?Nr\.?|Belegnummer|Invoice\s*No\.?|Facture\s*n[°o]\.?|N[°o]\s*de\s*facture)[ \t]*[:.]?[ \t]*([A-Za-z0-9][A-Za-z0-9.\-\/]*(?:[ \t]+[A-Za-z0-9][A-Za-z0-9.\-\/]*){0,4})/iu', $text, $m)) {
 		$result['invoice_ref'] = trim($m[1]);
 	}
 
@@ -240,16 +259,40 @@ function auvorechnungsimport_parse_fields($text)
 		$result['invoice_date'] = $m[0];
 	}
 
-	// Total amount: label followed by a number, optionally with currency symbol.
-	if (preg_match('/(?:Gesamtbetrag|Gesamtpreis|Gesamtsumme|Rechnungsbetrag|Rechnungswert|Rechnungsendbetrag|Bruttorechnungswert|Endbetrag|Zahlbetrag|Zu\s*zahlen(?:der\s*Betrag)?|Total\s*TTC|Total\s*à\s*payer|Total\s*due|Montant\s*total)[^\d\n]{0,10}([0-9]{1,3}(?:[.\s][0-9]{3})*[,.][0-9]{2})/iu', $text, $m)) {
+	$amountToken = '[0-9]{1,3}(?:[.\s][0-9]{3})*(?:[,.][0-9]{2}|[,.]\s*[-–—]{1,2})';
+	// Total amount labels can be separated from the amount by a currency name
+	// or wording such as "Betrag von".
+	if (preg_match('/(?:Gesamtbetrag|Gesamtpreis|Gesamtsumme|Rechnungsbetrag|Rechnungswert|Rechnungsendbetrag|Bruttorechnungswert|Endbetrag|Endsumme|Zahlbetrag|Betrag\s+von|Zu\s*zahlen(?:der\s*Betrag)?|Total\s*TTC|Total\s*à\s*payer|Total\s*due|Montant\s*total)[^\d\n]{0,40}('.$amountToken.')/iu', $text, $m)) {
 		$result['amount_ttc'] = auvorechnungsimport_parse_amount($m[1]);
 	}
 	// Net total - only used to cross-check detected invoice lines.
-	if (preg_match('/(?:Netto[- ]?(?:Gesamtwert|Gesamtbetrag|betrag|summe|wert|Warenwert)|Nettosumme|Summe\s*netto|Gesamt\s*netto|Warenwert(?:\s*netto)?|Total\s*HT|Montant\s*HT|Net\s*(?:amount|total)|Subtotal|Netto(?=\s*:))[^\d\n]{0,40}?([0-9]{1,3}(?:[.\s][0-9]{3})*[,.][0-9]{2})/iu', $text, $m)) {
+	if (preg_match('/(?:Netto[- ]?(?:Gesamtwert|Gesamtbetrag|betrag|summe|wert|Warenwert)|Nettosumme|Summe\s*netto|Gesamt\s*netto|Zwischensumme\s*\(\s*netto\s*\)|Warenwert(?!\s*\(\s*brutto\s*\))(?:\s*netto)?|Total\s*HT|Montant\s*HT|Net\s*(?:amount|total)|Subtotal|Netto(?=\s*:))[^\d\n]{0,40}?('.$amountToken.')/iu', $text, $m)) {
 		$result['amount_ht'] = auvorechnungsimport_parse_amount($m[1]);
+	}
+	// If no separate net total is printed, sum taxable bases from the VAT
+	// summary (for example "7 % MwSt von 121,50").
+	if ($result['amount_ht'] === null) {
+		$vatBases = array();
+		$vatLabel = '/\b(?:MwSt|USt|Mehrwertsteuer|Umsatzsteuer|VAT|TVA)\b/iu';
+		foreach (preg_split('/\r\n|\r|\n/u', $text) as $textLine) {
+			if (preg_match($vatLabel, $textLine) && preg_match('/\b(?:von|auf)\s*('.$amountToken.')/iu', $textLine, $baseMatch)) {
+				$base = auvorechnungsimport_parse_amount($baseMatch[1]);
+				if ($base !== null) $vatBases[] = $base;
+			}
+		}
+		if ($vatBases) $result['amount_ht'] = round(array_sum($vatBases), 2);
 	}
 	if (strpos($text, '€') !== false || preg_match('/\bEUR\b/i', $text)) {
 		$result['currency'] = 'EUR';
+	}
+	// German IBANs are 22 characters. Normalize separators and keep the value
+	// only when its checksum is valid, so OCR noise does not trigger bank lookups.
+	if (preg_match('/\b(DE\s?\d{2}(?:[ \t]?\d){18})\b/iu', $text, $ibanMatch)) {
+		$iban = strtoupper(preg_replace('/\s+/', '', $ibanMatch[1]));
+		if (auvorechnungsimport_iban_mod97_valid($iban)) $result['iban'] = $iban;
+	}
+	if (preg_match('/\bBIC(?:\s*\/\s*SWIFT)?\s*[:.]?\s*([A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)\b/iu', $text, $bicMatch)) {
+		$result['bic'] = strtoupper($bicMatch[1]);
 	}
 
 	// Supplier name guess: a line naming its own legal form (GmbH, AG, SARL, ...) is
@@ -261,7 +304,7 @@ function auvorechnungsimport_parse_fields($text)
 	$candidateLines = array();
 	foreach (preg_split('/\r\n|\r|\n/', $text) as $line) {
 		$line = trim($line);
-		if ($line === '' || dol_strlen($line) > 80 || !preg_match('/\p{L}{2}/u', $line)) {
+		if ($line === '' || dol_strlen($line) > 180 || !preg_match('/\p{L}{2}/u', $line)) {
 			continue; // skip empty lines, page markers ("- Seite 1/2 -"), pure numbers/punctuation
 		}
 		if (preg_match('/^-?\s*(Seite|Page)\b/iu', $line)) {
@@ -269,15 +312,58 @@ function auvorechnungsimport_parse_fields($text)
 		}
 		$candidateLines[] = $line;
 	}
+	// German letterheads in format: Name <sep.> Address <sep.> PLZ Ort.
+	// Parse this for the address, but retain a separate legal-form name candidate:
+	// some layouts abbreviate or clip the name in the compact sender line.
+	$separator = '(?:\s+-\s+|[\x{2022}\x{25CF}\x{F0B7}\x{F0DF}\x{F09F}|])';
+	$streetOrBox = '(?:Postfach\s+[\p{L}\d][\p{L}\d \/-]*|P\.?\s*O\.?\s*Box\s*[\p{L}\d][\p{L}\d \/-]*|.+?\s+\d+\s*[a-zA-Z]?(?:\s*[-\/]\s*\d+\s*[a-zA-Z]?)?)';
+	$senderPattern = '/^\s*(?<name>.+?)\s*'.$separator.'\s*(?<address>'.$streetOrBox.')\s*'.$separator.'\s*(?<postcode>\d{5})\s+(?<city>.+?)\s*$/iu';
+	$senderNameQualifiers = array('Firmensitz:', 'Filiale:');
+	$senderQualifierPattern = '/^\s*(?:'.implode('|', array_map('preg_quote', $senderNameQualifiers)).')\s*/iu';
+	$structuredSenderName = '';
 	foreach ($candidateLines as $line) {
-		if (preg_match('/\b(?:GmbH|AG|KGaA|KG|OHG|e\.?K\.?|UG|SARL|SASU|SAS|SA|Ltd|Inc|LLC)\b/u', $line)) {
-			$result['supplier_name'] = $line;
-			$result['supplier_name_confident'] = true;
+		if (preg_match($senderPattern, $line, $m)) {
+			$structuredSenderName = trim(preg_replace($senderQualifierPattern, '', $m['name']));
+			$result['supplier_address'] = array(
+				'line1' => trim($m['address']),
+				'postcode' => trim($m['postcode']),
+				'city' => trim($m['city']),
+				'country' => 'DE',
+			);
+			$result['supplier_country'] = 'DE';
 			break;
 		}
 	}
+	$legalNameCandidate = '';
+	$legalFormPattern = '/\b(?:GmbH\s*&\s*Co\.?\s*KG|GmbH|AG|KGaA|KG|OHG|e\.?K\.?|UG(?:\s*\(haftungsbeschränkt\))?|SARL|SASU|SAS|SA|Ltd\.?|Inc\.?|LLC)\b/iu';
+	foreach ($candidateLines as $line) {
+		$nameLine = preg_replace($senderQualifierPattern, '', $line);
+		if (preg_match($legalFormPattern, $nameLine, $m, PREG_OFFSET_CAPTURE)) {
+			$legalNameCandidate = trim(substr($nameLine, 0, $m[0][1] + strlen($m[0][0])));
+			break;
+		}
+	}
+	if ($structuredSenderName !== '') {
+		$result['supplier_name'] = $structuredSenderName;
+		// If another line supplies a longer legal-form name with the same
+		// distinctive beginning, keep that fuller name and still use the
+		// structured sender line to separate its address.
+		if ($legalNameCandidate !== '' && dol_strlen($legalNameCandidate) > dol_strlen($structuredSenderName)) {
+			$normalizeName = function ($name) {
+				$name = strtr((string) $name, array('Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue', 'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue', 'ß' => 'ss'));
+				return strtolower(preg_replace('/[^a-z0-9]+/i', '', $name));
+			};
+			$structuredKey = $normalizeName($structuredSenderName);
+			$legalKey = $normalizeName($legalNameCandidate);
+			if ($structuredKey !== '' && strpos($legalKey, $structuredKey) === 0) $result['supplier_name'] = $legalNameCandidate;
+		}
+		$result['supplier_name_confident'] = true;
+	} elseif ($legalNameCandidate !== '') {
+		$result['supplier_name'] = $legalNameCandidate;
+		$result['supplier_name_confident'] = true;
+	}
 	if (empty($result['supplier_name']) && !empty($candidateLines)) {
-		$result['supplier_name'] = $candidateLines[0];
+		$result['supplier_name'] = preg_replace($senderQualifierPattern, '', $candidateLines[0]);
 	}
 
 	return $result;
@@ -352,15 +438,23 @@ function auvorechnungsimport_match_supplier($db, $vat, $name, $taxId = '')
  */
 function auvorechnungsimport_process_file($db, $object, $abspath)
 {
+	$smallBusinessText = '';
 	if (auvorechnungsimport_is_xml_file($abspath)) {
 		// XML e-invoice (XRechnung, Peppol): exact data, nothing to guess. An
 		// XML that is no EN 16931 invoice ends up as an error record.
-		$inv = auvorechnungsimport_parse_einvoice((string) @file_get_contents($abspath));
+		$smallBusinessText = (string) @file_get_contents($abspath);
+		$inv = auvorechnungsimport_parse_einvoice($smallBusinessText);
 		$fields = $inv !== null ? auvorechnungsimport_einvoice_to_fields($inv) : array('lines' => array());
 		$method = $inv !== null ? 'xml-'.$inv['syntax'] : 'xml';
 	} else {
 		$fields = auvorechnungsimport_extract_facturx($abspath);
 		$method = 'facturx';
+		if ($fields !== null) {
+			$smallBusinessText = auvorechnungsimport_extract_pdftext($abspath);
+			// Text-layer declarations such as "§ 19, Abs. 1 UStG"
+			$embeddedXml = auvorechnungsimport_pdf_embedded_xml($abspath);
+			if ($embeddedXml !== null) $smallBusinessText .= "\n".$embeddedXml;
+		}
 	}
 
 	if ($fields === null) {
@@ -374,6 +468,25 @@ function auvorechnungsimport_process_file($db, $object, $abspath)
 		$lineText = auvorechnungsimport_extract_pdftext_layout($abspath);
 		$text = ($lineText === null || $lineText !== '') ? auvorechnungsimport_extract_pdftext($abspath) : '';
 		$fields = auvorechnungsimport_parse_fields($text);
+		// The visual layout can retain values lost or reordered in the normal
+		// stream. Fill only fields the primary text pass did not find.
+		if ($lineText !== null && trim($lineText) !== '') {
+			$layoutFields = auvorechnungsimport_parse_fields($lineText);
+			if (empty($fields['supplier_address']) && !empty($layoutFields['supplier_address'])) {
+				$fields['supplier_address'] = $layoutFields['supplier_address'];
+				if (empty($fields['supplier_name_confident']) && !empty($layoutFields['supplier_name'])) {
+					$fields['supplier_name'] = $layoutFields['supplier_name'];
+				}
+			}
+			foreach (array('supplier_vat', 'supplier_tax_id', 'supplier_iban', 'supplier_email', 'supplier_phone', 'supplier_country', 'invoice_ref', 'invoice_date', 'amount_ttc', 'amount_ht', 'currency') as $key) {
+				$preferLayoutInvoiceRef = $key === 'invoice_ref'
+					&& strlen(preg_replace('/\D/', '', (string) ($layoutFields[$key] ?? ''))) > strlen(preg_replace('/\D/', '', (string) ($fields[$key] ?? '')));
+				$preferLayoutInvoiceDate = $key === 'invoice_date' && !empty($layoutFields[$key]);
+				if (!empty($layoutFields[$key]) && (empty($fields[$key]) || $preferLayoutInvoiceRef || $preferLayoutInvoiceDate)) {
+					$fields[$key] = $layoutFields[$key];
+				}
+			}
+		}
 		$method = 'text';
 
 		// The digital text layer of multi-column/letter-style invoices often comes out
@@ -426,12 +539,40 @@ function auvorechnungsimport_process_file($db, $object, $abspath)
 			}
 		}
 		list($fields['lines'], $fields['lines_check']) = auvorechnungsimport_finish_text_lines($lines, $totals, $lineText);
+		$smallBusinessText = implode("\n", array_filter(array($text, $lineText, $ocrText, $ocrLayoutText), 'strlen'));
 		if (empty($fields['amount_ht']) && !empty($totals['amount_ht'])) {
 			$fields['amount_ht'] = $totals['amount_ht'];
 		}
 	}
+	$smallBusinessText = html_entity_decode($smallBusinessText, ENT_QUOTES | ENT_XML1, 'UTF-8');
+	if (preg_match('/(?:§\s*|\bparagraph\s+)19(?=\s|[,.;:]|$)/u', $smallBusinessText)) {
+		$fields['small_business_19_detected'] = true;
+		$fields['vat_treatment'] = 'DE_KLEINUNTERNEHMER_19';
+		$smallBusinessLineSum = 0.0;
+		foreach ($fields['lines'] ?? array() as $i => $line) {
+			$fields['lines'][$i]['price_base'] = 'TTC';
+			$fields['lines'][$i]['vat_rate'] = 0;
+			$smallBusinessLineSum += (float) ($line['total'] ?? 0);
+		}
+		if (isset($fields['amount_ttc']) && $fields['amount_ttc'] !== null) {
+			$fields['amount_ht'] = (float) $fields['amount_ttc'];
+			if (!empty($fields['lines'])) {
+				$smallBusinessTolerance = max(0.05, abs($smallBusinessLineSum) * 0.001);
+				$fields['lines_check'] = abs($smallBusinessLineSum - (float) $fields['amount_ttc']) <= $smallBusinessTolerance ? 'ok' : 'mismatch';
+			}
+		}
+	}
 
 	list($fkSoc, $confidence) = auvorechnungsimport_match_supplier($db, $fields['supplier_vat'] ?? '', $fields['supplier_name'] ?? '', $fields['supplier_tax_id'] ?? '');
+	$ibanForLookup = strtoupper(preg_replace('/\s+/', '', (string) ($fields['iban'] ?? $fields['supplier_iban'] ?? '')));
+	if ($ibanForLookup !== '') {
+		if (!isset($fields['supplier_bank_details']) || !is_array($fields['supplier_bank_details'])) $fields['supplier_bank_details'] = array();
+		$fields['supplier_bank_details']['iban'] = $ibanForLookup;
+		if (empty($fields['supplier_bank_details']['bank_name'])) {
+			$bankName = auvorechnungsimport_lookup_bank_name_from_iban($ibanForLookup);
+			if ($bankName !== '') $fields['supplier_bank_details']['bank_name'] = $bankName;
+		}
+	}
 
 	$object->extraction_method = $method;
 	$object->extracted_data = json_encode($fields, JSON_UNESCAPED_UNICODE);
@@ -480,6 +621,134 @@ function auvorechnungsimport_normalize_vat($vat)
 	return strtoupper(preg_replace('/[\s.\-]/', '', (string) $vat));
 }
 
+/** Return meaningful company-name tokens after normalizing German characters. */
+function auvorechnungsimport_company_name_parts($name)
+{
+	$name = strtr((string) $name, array('Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue', 'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue', 'ß' => 'ss'));
+	$name = strtolower($name);
+	$name = preg_replace('/[^a-z0-9]+/', ' ', $name);
+	$stop = array('e', 'v', 'ev', 'gmbh', 'ug', 'ag', 'kg', 'ohg', 'kgaa', 'ltd', 'inc', 'llc', 'sarl', 'sasu', 'sa', 'sv', 'fv', 'der', 'die', 'das', 'und', 'von', 'zu');
+	$tokens = array_filter(preg_split('/\s+/', trim($name)), function ($token) use ($stop) {
+		return $token !== '' && !ctype_digit($token) && !in_array($token, $stop, true);
+	});
+	return array_values(array_unique($tokens));
+}
+
+/** Normalize a company name while ignoring spacing and common legal-form words. */
+function auvorechnungsimport_company_name_compact_key($name)
+{
+	return implode('', auvorechnungsimport_company_name_parts($name));
+}
+
+/** Normalize a company name into distinctive tokens, joining OCR-split words too. */
+function auvorechnungsimport_company_name_tokens($name)
+{
+	$tokens = auvorechnungsimport_company_name_parts($name);
+	$expanded = $tokens;
+	$tokenCount = count($tokens);
+	for ($start = 0; $start < $tokenCount; $start++) {
+		for ($length = 2; $length <= 4 && $start + $length <= $tokenCount; $length++) {
+			$joined = implode('', array_slice($tokens, $start, $length));
+			if (strlen($joined) >= 5) $expanded[] = $joined;
+		}
+	}
+	return array_values(array_unique($expanded));
+}
+
+/** Detect when OCR or the selected supplier points back to Dolibarr's own company. */
+function auvorechnungsimport_is_own_company_supplier($db, $fields = array(), $supplierId = 0)
+{
+	global $mysoc;
+	$ownNames = array(getDolGlobalString('MAIN_INFO_SOCIETE_NOM'));
+	$aliasValue = getDolGlobalString('AUVORECHNUNGSIMPORT_OWN_COMPANY_ALIASES');
+	$aliasValue = str_replace(array('\\r\\n', '\\n', '\\r', "\r\n", "\r", "\n"), ';', $aliasValue);
+	foreach (explode(';', $aliasValue) as $alias) {
+		$alias = trim($alias);
+		if ($alias !== '') $ownNames[] = $alias;
+	}
+	if (is_object($mysoc) && !empty($mysoc->name)) $ownNames[] = (string) $mysoc->name;
+	$ownVat = auvorechnungsimport_normalize_vat(getDolGlobalString('MAIN_INFO_TVAINTRA'));
+	$ownTokens = array();
+	$ownNameKeys = array();
+	foreach ($ownNames as $ownName) {
+		$tokens = auvorechnungsimport_company_name_tokens($ownName);
+		if ($tokens) $ownTokens[] = $tokens;
+		$key = auvorechnungsimport_company_name_compact_key($ownName);
+		if (strlen($key) >= 10) $ownNameKeys[] = $key;
+	}
+	$matchesOwnIdentity = function ($name, $vat) use ($ownVat, $ownTokens, $ownNameKeys) {
+		$vat = auvorechnungsimport_normalize_vat($vat);
+		if ($ownVat !== '' && $vat !== '' && $vat === $ownVat) return true;
+		$candidateKey = auvorechnungsimport_company_name_compact_key($name);
+		if ($candidateKey !== '' && in_array($candidateKey, $ownNameKeys, true)) return true;
+		$candidateTokens = auvorechnungsimport_company_name_tokens($name);
+		foreach ($ownTokens as $tokens) {
+			$common = count(array_intersect($tokens, $candidateTokens));
+			$smaller = min(count($tokens), count($candidateTokens));
+			if ($common > 0 && ($common === count($tokens) && $common === count($candidateTokens) || $common >= 2 && $common / max(1, $smaller) >= 0.8)) return true;
+		}
+		return false;
+	};
+	if ($matchesOwnIdentity($fields['supplier_name'] ?? '', $fields['supplier_vat'] ?? '')) return true;
+	if ((int) $supplierId > 0) {
+		require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+		$supplier = new Societe($db);
+		if ($supplier->fetch((int) $supplierId) > 0 && $matchesOwnIdentity($supplier->name ?? '', $supplier->tva_intra ?? '')) return true;
+	}
+	return false;
+}
+
+/**
+ * Validate an IBAN checksum without converting the full number to an integer.
+ *
+ * @param string $iban
+ * @return bool
+ */
+function auvorechnungsimport_iban_mod97_valid($iban)
+{
+	$iban = strtoupper(preg_replace('/\s+/', '', (string) $iban));
+	if (!preg_match('/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/', $iban)) return false;
+	$rearranged = substr($iban, 4).substr($iban, 0, 4);
+	$remainder = 0;
+	foreach (str_split($rearranged) as $character) {
+		$digits = ctype_alpha($character) ? (string) (ord($character) - 55) : $character;
+		for ($i = 0, $length = strlen($digits); $i < $length; $i++) {
+			$remainder = ($remainder * 10 + (int) $digits[$i]) % 97;
+		}
+	}
+	return $remainder === 1;
+}
+
+/**
+ * Look up the bank name for a German IBAN via the public SEPA Toolbox endpoint.
+ * Results are memoized for this PHP request, and failures are non-fatal.
+ *
+ * @param string $iban
+ * @return string
+ */
+function auvorechnungsimport_lookup_bank_name_from_iban($iban)
+{
+	static $cache = array();
+	$iban = strtoupper(preg_replace('/\s+/', '', (string) $iban));
+	if (!preg_match('/^DE[0-9]{20}$/', $iban) || !auvorechnungsimport_iban_mod97_valid($iban)) return '';
+	$bankCode = substr($iban, 4, 8);
+	if (array_key_exists($bankCode, $cache)) return $cache[$bankCode];
+	$cache[$bankCode] = '';
+	if (!function_exists('getURLContent')) require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
+	$url = 'https://fintechtoolbox.com/bankcodes/'.$bankCode.'.json';
+	try {
+		$response = getURLContent($url, 'GET', '', 1, array('Accept: application/json'), array('https'), 0, -1, 4, 6);
+	} catch (Throwable $e) {
+		return '';
+	}
+	if (empty($response['http_code']) || (int) $response['http_code'] !== 200 || empty($response['content']) || strlen($response['content']) > 65536) return '';
+	$data = json_decode($response['content'], true);
+	$bank = is_array($data['bank_code'] ?? null) ? $data['bank_code'] : array();
+	$name = trim((string) ($bank['bank_name'] ?? $bank['description'] ?? ''));
+	if ($name !== '' && !preg_match('/[\r\n\x00-\x1F]/', $name)) $cache[$bankCode] = dol_trunc($name, 128);
+	return $cache[$bankCode];
+}
+
 /**
  * @param ?string $amount
  * @return ?float
@@ -490,6 +759,12 @@ function auvorechnungsimport_parse_amount($amount)
 		return null;
 	}
 	$amount = trim((string) $amount);
+	if (preg_match('/[,.]\s*[-–—]{1,2}$/u', $amount)) {
+		// German whole-euro notation such as "625,-" or "625,–".
+		$amount = preg_replace('/[,.]\s*[-–—]{1,2}$/u', '', $amount);
+		$amount = str_replace(array('.', ',', ' '), '', $amount);
+		return is_numeric($amount) ? (float) $amount : null;
+	}
 	// European format "1.234,56" -> "1234.56"; a lone comma is read as decimal separator.
 	if (preg_match('/,\d{2}$/', $amount)) {
 		$amount = str_replace('.', '', $amount);
@@ -499,19 +774,7 @@ function auvorechnungsimport_parse_amount($amount)
 	}
 	return is_numeric($amount) ? (float) $amount : null;
 }
-
-/**
- * @param string $raw UN/CEFACT DateTimeString, usually format 102 = YYYYMMDD
- * @return ?string
- */
-function auvorechnungsimport_parse_cii_date($raw)
-{
-	$raw = trim((string) $raw);
-	if (preg_match('/^(\d{4})(\d{2})(\d{2})$/', $raw, $m)) {
-		return $m[1].'-'.$m[2].'-'.$m[3];
-	}
-	return null;
-}
+// auvorechnungsimport_parse_cii_date() duplicated the existing auvorechnungsimport_cii_date()
 
 /**
  * Normalize an invoice line label into a stable lookup key for the learned
@@ -605,6 +868,29 @@ function auvorechnungsimport_match_lines($db, $fkSoc, $lines)
 	};
 
 	foreach ($lines as $i => $line) {
+		if (!empty($line['product_user_selected'])) {
+			$fkProduct = (int) ($line['fk_product'] ?? 0);
+			if ($fkProduct > 0) {
+				require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
+				$product = new Product($db);
+				if ($product->fetch($fkProduct) <= 0) $fkProduct = 0;
+			}
+			$lines[$i]['fk_product'] = $fkProduct;
+			$lines[$i]['match_source'] = $fkProduct ? 'user' : '';
+			$lines[$i]['variant_parent'] = 0;
+			$lines[$i]['variant_plan'] = null;
+			if (!empty($line['mode_user_selected']) && in_array($line['mode'] ?? '', AUVORECHNUNGSIMPORT_LINE_MODES, true)) {
+				$lines[$i]['mode'] = $line['mode'];
+				$lines[$i]['mode_source'] = '';
+			} else {
+				list($lines[$i]['mode'], $lines[$i]['mode_source']) = auvorechnungsimport_line_mode($db, $fkSoc, $line, (bool) $fkProduct);
+			}
+			if ($lines[$i]['mode'] !== 'book') {
+				$lines[$i]['fk_product'] = 0;
+				$lines[$i]['match_source'] = '';
+			}
+			continue;
+		}
 		$fkProduct = 0;
 		$source = '';
 		$ref = trim((string) ($line['ref_supplier'] ?? ''));
@@ -729,7 +1015,13 @@ function auvorechnungsimport_match_lines($db, $fkSoc, $lines)
 
 		// How to book the line: learned choice for this supplier and label, then
 		// a matched product (booked as such), then the setup's keywords.
-		list($lines[$i]['mode'], $lines[$i]['mode_source']) = auvorechnungsimport_line_mode($db, $fkSoc, $lines[$i], (bool) $fkProduct);
+		if (!empty($line['mode_user_selected']) && in_array($line['mode'] ?? '', AUVORECHNUNGSIMPORT_LINE_MODES, true)) {
+			// A saved user choice wins over learned rules and current keyword settings.
+			$lines[$i]['mode'] = $line['mode'];
+			$lines[$i]['mode_source'] = '';
+		} else {
+			list($lines[$i]['mode'], $lines[$i]['mode_source']) = auvorechnungsimport_line_mode($db, $fkSoc, $lines[$i], (bool) $fkProduct);
+		}
 		if ($lines[$i]['mode'] !== 'book') {
 			$lines[$i]['fk_product'] = 0;
 			$lines[$i]['match_source'] = '';
@@ -958,7 +1250,8 @@ function auvorechnungsimport_extract_pdftext_layout($pdfpath)
 		return null;
 	}
 	$output = array();
-	exec('pdftotext -layout -enc UTF-8 '.escapeshellarg($pdfpath).' - 2>/dev/null', $output, $retval);
+	$stderrRedirect = (DIRECTORY_SEPARATOR === '\\') ? '2>NUL' : '2>/dev/null';
+	exec('pdftotext -layout -enc UTF-8 '.escapeshellarg($pdfpath).' - '.$stderrRedirect, $output, $retval);
 	return $retval === 0 ? trim(implode("\n", $output)) : null;
 }
 
@@ -975,11 +1268,19 @@ function auvorechnungsimport_parse_number_token($token)
 	$token = trim($token);
 	$percent = substr($token, -1) === '%';
 	$token = rtrim($token, '%€');
+	// German amounts like "625,-".
+	$wholeEuro = preg_match('/^-?(?:\d{1,3}(?:\.\d{3})+|\d+)[,.][ \t]*[-–—]{1,2}$/u', $token);
+	if ($wholeEuro) {
+		$token = preg_replace('/[,.][ \t]*[-–—]{1,2}$/u', '', $token);
+	}
 	if (!preg_match('/^(-?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,4})?|-?\d+\.\d{2,4})(?:EUR|ST|Stk\.?|x)?$/iu', $token, $m)) {
 		return null;
 	}
 	$num = $m[1];
-	if (strpos($num, ',') !== false) {
+	if ($wholeEuro) {
+		$decimals = true;
+		$num = str_replace('.', '', $num);
+	} elseif (strpos($num, ',') !== false) {
 		$decimals = (bool) preg_match('/,\d{2,4}$/', $num);
 		$num = str_replace(array('.', ','), array('', '.'), $num);
 	} elseif (preg_match('/^-?\d+\.\d{2,4}$/', $num)) {
@@ -1003,7 +1304,8 @@ function auvorechnungsimport_parse_number_token($token)
  *   "1   2 F110K Fruit of the Loom ... T 104      1,74     3,48"   (qty first)
  *   "1   1816 Rucksack Striker  -  16 ST   12,50   200,00 19,00"   (VAT column)
  *   "1   DTF Meterware   8   Stück   11,89   95,12"
- * Single-amount lines are only accepted for typical fee wording (shipping...).
+ * Single-amount lines are accepted only for fee wording or explicitly numbered
+ * service rows, so arbitrary totals and address amounts are not treated as items.
  *
  * Indented text-only lines right below a row (color, variant) are appended to
  * its label. Totals/tax/payment lines are skipped by keyword.
@@ -1024,7 +1326,8 @@ function auvorechnungsimport_parse_text_lines($text)
 
 	foreach ($rows as $row) {
 		if (trim($row) === '') {
-			$last = null;
+			// Keep the preceding candidate across blank rows; wrapped labels and
+			// supplier item references often appear on the next visual text row.
 			continue;
 		}
 		$tokens = preg_split('/\s+/u', trim($row));
@@ -1097,6 +1400,11 @@ function auvorechnungsimport_parse_text_lines($text)
 		} elseif (count($amountIdx) == 1 && preg_match($fee, $row) && !preg_match($skip, $row)) {
 			$ti = $amountIdx[0];
 			$match = array('q' => null, 'qty' => 1.0, 'p' => $ti, 't' => $ti, 'discount' => 0);
+		} elseif (count($amountIdx) == 1 && preg_match('/^\s*\d{1,3}\.\s+\S/u', $row) && !preg_match($skip, $row)) {
+			// A numbered service line may show one amount only, without separate
+			// quantity and unit-price columns.
+			$ti = $amountIdx[0];
+			$match = array('q' => null, 'qty' => 1.0, 'p' => $ti, 't' => $ti, 'discount' => 0);
 		}
 
 		if ($match === null) {
@@ -1105,7 +1413,14 @@ function auvorechnungsimport_parse_text_lines($text)
 			$indent = strlen($row) - strlen(ltrim($row));
 			if ($last !== null && $indent > $lastIndent && empty($amountIdx) && strpos($row, ':') === false
 				&& dol_strlen(trim($row)) <= 60 && preg_match('/\p{L}{2}/u', $row) && !preg_match($skip, $row)) {
-				$lines[$last]['label'] .= ' '.trim($row);
+				$continuation = trim($row);
+				// Some layouts wrap the supplier's item reference onto a second line.
+				if (empty($lines[$last]['ref_supplier']) && preg_match('/^([\p{L}\d][\p{L}\d._\-\/]{2,29})\s+(.+)$/u', $continuation, $continuationMatch)
+					&& preg_match('/\d/u', $continuationMatch[1])) {
+					$lines[$last]['ref_supplier'] = $continuationMatch[1];
+					$continuation = $continuationMatch[2];
+				}
+				$lines[$last]['label'] .= ' '.$continuation;
 			} else {
 				$last = null;
 			}
@@ -1146,9 +1461,15 @@ function auvorechnungsimport_parse_text_lines($text)
 				$skipIdx[$first] = true;
 			}
 		}
+		// Nested position numbers such as 1.1 are metadata, not label text.
+		foreach ($tokens as $idx => $token) {
+			if ($idx < $match['p'] && preg_match('/^\d+(?:\.\d+)+$/', $token)) {
+				$skipIdx[$idx] = true;
+			}
+		}
 		$labelTokens = array();
 		for ($i = 0; $i < $end; $i++) {
-			if (isset($skipIdx[$i]) || preg_match('/^[-–*]$/u', $tokens[$i])) {
+			if (isset($skipIdx[$i]) || preg_match('/^(?:\d{1,3}\.|[-–*]|\[\s*-\s*\]|as-)$/iu', $tokens[$i])) {
 				continue;
 			}
 			$labelTokens[] = $tokens[$i];
@@ -1159,6 +1480,11 @@ function auvorechnungsimport_parse_text_lines($text)
 			$ref = array_shift($labelTokens);
 		}
 		$label = trim(implode(' ', $labelTokens));
+		if (preg_match('/^\s*\d{1,3}\.\s+\S/u', $row)) {
+			// Telecom invoices can print a grouped connection number in the
+			// middle of the service label; it is not part of the item description.
+			$label = trim(preg_replace('/\b\d{4}\s+\d{4}\s+\d{4}\b/u', '', $label));
+		}
 		if ($label === '' && $ref === '') {
 			continue;
 		}
@@ -1209,13 +1535,18 @@ function auvorechnungsimport_parse_text_lines($text)
 function auvorechnungsimport_parse_vat_rates($text)
 {
 	$rates = array();
-	$label = '(?:MwSt|USt|Mehrwertsteuer|Umsatzsteuer|VAT|TVA)\.?';
-	$rate = '(\d{1,2}(?:[,.]\d{1,2})?)\s*%';
-	if (preg_match_all('/'.$rate.'\s*'.$label.'|'.$label.'\s*(?:von\s*)?'.$rate.'/iu', (string) $text, $all, PREG_SET_ORDER)) {
-		foreach ($all as $m) {
-			$value = (float) str_replace(',', '.', !empty($m[1]) ? $m[1] : $m[2]);
-			if ($value > 0 && $value <= 27) {
-				$rates[(string) $value] = $value;
+	$label = '/\b(?:MwSt|USt|Mehrwertsteuer|Umsatzsteuer|VAT|TVA)\b/iu';
+	foreach (preg_split('/\r\n|\r|\n/u', (string) $text) as $textLine) {
+		// Tax-code wording can be between the VAT label and the percentage.
+		if (!preg_match($label, $textLine)) {
+			continue;
+		}
+		if (preg_match_all('/(\d{1,2}(?:[,.]\d{1,2})?)\s*%/u', $textLine, $matches)) {
+			foreach ($matches[1] as $rawRate) {
+				$value = (float) str_replace(',', '.', $rawRate);
+				if ($value >= 0 && $value <= 27) {
+					$rates[(string) $value] = $value;
+				}
 			}
 		}
 	}
@@ -1236,8 +1567,16 @@ function auvorechnungsimport_parse_vat_rates($text)
  */
 function auvorechnungsimport_finish_text_lines($lines, $fields, $text)
 {
+	// Explicit gross-column headings outrank the arithmetic heuristic when
+	// totals contain discounts, bundle rows or rounding differences.
+	$grossColumnLabels = preg_match_all('/\(\s*(?:brutto|gross|ttc)\s*\)/iu', (string) $text);
 	if (empty($lines)) {
 		return array($lines, 'unknown');
+	}
+	if ($grossColumnLabels >= 2) {
+		foreach ($lines as $i => $line) {
+			$lines[$i]['price_base'] = 'TTC';
+		}
 	}
 	$rates = auvorechnungsimport_parse_vat_rates($text);
 	if (count($rates) == 1) {
@@ -1706,19 +2045,17 @@ function auvorechnungsimport_linked_order_id($db, $invoice)
  * into stock. With the lot/serial module enabled, Dolibarr only allows stock
  * increases through a reception of a supplier order, not on a supplier invoice.
  *
- * The order gets the invoice's lines, is linked to the invoice, validated,
- * approved and set to "ordered" (so "Receive" is available right away) and
- * marked billed - the invoice already exists. If the user lacks the right for
- * a step, the order stays at the previous status and a warning is returned.
+ * The order gets the invoice's lines, is linked to the invoice, and is released
+ * through validation and approval. It stops at accepted; ordering, receiving,
+ * and billing are later purchasing steps.
  *
  * @param DoliDB $db
  * @param User $user
  * @param FactureFournisseur $invoice With lines fetched
- * @param string $priceBase 'HT' or 'TTC' - as the invoice lines were entered
  * @param array<int,string> $warnings Receives non-fatal problems
  * @return int Order id, <0 on error (errors in $invoice->errors)
  */
-function auvorechnungsimport_create_supplier_order($db, $user, $invoice, $priceBase, &$warnings)
+function auvorechnungsimport_create_supplier_order($db, $user, $invoice, &$warnings)
 {
 	global $langs;
 	require_once DOL_DOCUMENT_ROOT.'/fourn/class/fournisseur.commande.class.php';
@@ -1758,10 +2095,9 @@ function auvorechnungsimport_create_supplier_order($db, $user, $invoice, $priceB
 	}
 	$order->fetch_thirdparty();
 	foreach ($invoice->lines as $line) {
-		$ttc = ($priceBase === 'TTC');
 		$result = $order->addline(
 			$line->desc,
-			$ttc ? 0 : (float) $line->subprice,
+			(float) $line->subprice,
 			(float) $line->qty,
 			$line->tva_tx,
 			(float) $line->localtax1_tx,
@@ -1770,8 +2106,8 @@ function auvorechnungsimport_create_supplier_order($db, $user, $invoice, $priceB
 			0,
 			(string) $line->ref_supplier,
 			(float) $line->remise_percent,
-			$ttc ? 'TTC' : 'HT',
-			$ttc ? (float) $line->pu_ttc : 0,
+			'HT',
+			0,
 			(int) $line->product_type,
 			(int) $line->info_bits,
 			0,
@@ -1786,23 +2122,60 @@ function auvorechnungsimport_create_supplier_order($db, $user, $invoice, $priceB
 		}
 	}
 
-	if ($order->valid($user) < 0) {
-		$warnings[] = $langs->trans('AuvoRechnungsimportOrderStepFailed', $langs->transnoentities('Validate'), $order->error);
-		return $order->id;
-	}
-	if ($order->approve($user) < 0) {
-		$warnings[] = $langs->trans('AuvoRechnungsimportOrderStepFailed', $langs->transnoentities('Approve'), $order->error);
-		return $order->id;
-	}
-	$order->fetch($order->id);
-	if ($order->commande($user, $invoice->date ?: dol_now(), 0) < 0) {
-		$warnings[] = $langs->trans('AuvoRechnungsimportOrderStepFailed', $langs->transnoentities('SupplierOrderSubmitedBack'), $order->error);
-		return $order->id;
-	}
-	if ($order->classifyBilled($user) < 0) {
-		$warnings[] = $langs->trans('AuvoRechnungsimportOrderStepFailed', $langs->transnoentities('ClassifyBilled'), $order->error);
-	}
+	auvorechnungsimport_release_supplier_order($order, $user, $warnings);
 	return $order->id;
+}
+
+/**
+ * Validate and approve a supplier order, stopping at the accepted status.
+ *
+ * Reused for orders created from an imported invoice and existing orders that
+ * a user releases from the import card.
+ *
+ * @param CommandeFournisseur $order
+ * @param User $user
+ * @param array<int,string> $warnings Receives step failures or pending approval
+ * @return int 1 when accepted, 0 when approval is pending or a step failed
+ */
+function auvorechnungsimport_release_supplier_order($order, $user, &$warnings)
+{
+	global $langs;
+	$warnings = array();
+
+	if ((int) $order->status === CommandeFournisseur::STATUS_DRAFT) {
+		if ($order->valid($user) < 0) {
+			$warnings[] = $langs->trans('AuvoRechnungsimportOrderStepFailed', $langs->transnoentities('Validate'), $order->error);
+			return 0;
+		}
+		$order->fetch($order->id);
+	}
+
+	if ((int) $order->status === CommandeFournisseur::STATUS_VALIDATED) {
+		$secondApprovalRequired = getDolGlobalString('SUPPLIER_ORDER_3_STEPS_TO_BE_APPROVED')
+			&& $order->total_ht >= getDolGlobalFloat('SUPPLIER_ORDER_3_STEPS_TO_BE_APPROVED');
+		if ($secondApprovalRequired && !empty($order->user_approve_id)) {
+			if (!empty($order->user_approve_id2) || !$user->hasRight('fournisseur', 'commande', 'approve2')) {
+				$warnings[] = $langs->trans('AuvoRechnungsimportOrderSecondApprovalPending');
+				return 0;
+			}
+			$approveResult = $order->approve($user, 0, 1);
+		} else {
+			if (!$user->hasRight('fournisseur', 'commande', 'approuver')) {
+				$warnings[] = $langs->trans('AuvoRechnungsimportOrderApprovalPending');
+				return 0;
+			}
+			$approveResult = $order->approve($user);
+		}
+		if ($approveResult < 0) {
+			$warnings[] = $langs->trans('AuvoRechnungsimportOrderStepFailed', $langs->transnoentities('Approve'), $order->error);
+			return 0;
+		}
+		$order->fetch($order->id);
+	}
+
+	if ((int) $order->status === CommandeFournisseur::STATUS_ACCEPTED) return 1;
+	if (empty($warnings)) $warnings[] = $langs->trans('AuvoRechnungsimportOrderApprovalPending');
+	return 0;
 }
 
 /**
@@ -2296,6 +2669,36 @@ function auvorechnungsimport_payment_type_id($db, $code)
 }
 
 /**
+ * Calculate a supplier invoice due date with Dolibarr's payment-term rules.
+ * One-day terms such as payment on order/delivery are intentionally not treated
+ * as a due date. The explicit immediate term (RECEP) is due on the invoice date.
+ *
+ * @param DoliDB $db
+ * @param int $invoiceDate Invoice date timestamp
+ * @param int $conditionId Payment condition rowid
+ * @return int Due date timestamp, or 0 when this term should not set a date
+ */
+function auvorechnungsimport_calculate_due_date($db, $invoiceDate, $conditionId)
+{
+	$invoiceDate = (int) $invoiceDate;
+	$conditionId = (int) $conditionId;
+	if ($invoiceDate <= 0 || $conditionId <= 0) return 0;
+
+	$sql = "SELECT code, nbjour FROM ".MAIN_DB_PREFIX."c_payment_term";
+	$sql .= " WHERE rowid = ".$conditionId." AND active = 1 AND entity IN (".getEntity('c_payment_term').")";
+	$resql = $db->query($sql);
+	if (!$resql || !($term = $db->fetch_object($resql))) return 0;
+	if (strtoupper((string) $term->code) === 'RECEP') return $invoiceDate;
+	if ((int) $term->nbjour <= 1) return 0;
+
+	$invoice = new FactureFournisseur($db);
+	$invoice->date = $invoiceDate;
+	$invoice->cond_reglement_id = $conditionId;
+	$dueDate = $invoice->calculate_date_lim_reglement($conditionId);
+	return is_numeric($dueDate) && (int) $dueDate > 0 ? (int) $dueDate : 0;
+}
+
+/**
  * Whether the supplier already has a bank account with this IBAN.
  *
  * @param DoliDB $db
@@ -2330,7 +2733,7 @@ function auvorechnungsimport_find_supplier_bank($db, $fkSoc, $iban)
  * @param string $owner Account holder (BT-85), the supplier's name if empty
  * @return int Id of the new bank account, <=0 on error (0 = IBAN invalid or known)
  */
-function auvorechnungsimport_create_supplier_bank($db, $user, $fkSoc, $iban, $bic, $owner)
+function auvorechnungsimport_create_supplier_bank($db, $user, $fkSoc, $iban, $bic, $owner, $bankName = '')
 {
 	require_once DOL_DOCUMENT_ROOT.'/societe/class/companybankaccount.class.php';
 	require_once DOL_DOCUMENT_ROOT.'/core/lib/bank.lib.php';
@@ -2346,7 +2749,7 @@ function auvorechnungsimport_create_supplier_bank($db, $user, $fkSoc, $iban, $bi
 	$account->socid = $fkSoc;
 	$account->type = 'ban';
 	$account->default_rib = 0;
-	$account->label = 'IBAN '.substr($iban, 0, 4).'…'.substr($iban, -4);
+	$account->label = trim($bankName) !== '' ? trim($bankName) : 'IBAN '.substr($iban, 0, 4).'…'.substr($iban, -4);
 	$account->iban = $iban;
 	$account->bic = $bic;
 	$account->owner_name = $owner !== '' ? $owner : $societe->name;
@@ -2423,6 +2826,41 @@ function auvorechnungsimport_create_supplier($db, $user, $details, &$errors)
 		$errors = array_merge($errors, $soc->errors ? $soc->errors : array($soc->error));
 	}
 	return $id;
+}
+
+/**
+ * Normalize seller fields from XML, PDF text, or OCR for the supplier review form.
+ *
+ * @param array<string,mixed> $extracted
+ * @return array<string,string>
+ */
+function auvorechnungsimport_supplier_details_from_fields($extracted)
+{
+	$seller = is_array($extracted['supplier'] ?? null) ? $extracted['supplier'] : array();
+	$address = is_array($seller['address'] ?? null) ? $seller['address'] : (is_array($extracted['supplier_address'] ?? null) ? $extracted['supplier_address'] : array());
+	$bank = is_array($extracted['supplier_bank_details'] ?? null) ? $extracted['supplier_bank_details'] : array();
+	$street = trim(implode("\n", array_filter(array(
+		(string) ($address['line1'] ?? ''),
+		(string) ($address['line2'] ?? ''),
+		(string) ($address['line3'] ?? ''),
+	), 'strlen')));
+	$sellerAddressText = is_string($seller['address'] ?? null) ? (string) $seller['address'] : (string) ($seller['address_text'] ?? '');
+	return array(
+		'name' => trim((string) ($seller['name'] ?? $extracted['supplier_name'] ?? '')),
+		'vat' => trim((string) ($seller['vat'] ?? $extracted['supplier_vat'] ?? '')),
+		'tax_id' => trim((string) ($seller['tax_id'] ?? $extracted['supplier_tax_id'] ?? '')),
+		'legal_id' => trim((string) ($seller['legal_id'] ?? $extracted['supplier_legal_id'] ?? '')),
+		'address' => trim($sellerAddressText !== '' ? $sellerAddressText : $street),
+		'zip' => trim((string) ($seller['zip'] ?? $address['postcode'] ?? '')),
+		'town' => trim((string) ($seller['town'] ?? $address['city'] ?? '')),
+		'country' => strtoupper(trim((string) ($seller['country'] ?? $address['country'] ?? $extracted['supplier_country'] ?? ''))),
+		'email' => trim((string) ($seller['email'] ?? $extracted['supplier_email'] ?? '')),
+		'phone' => trim((string) ($seller['phone'] ?? $extracted['supplier_phone'] ?? '')),
+		'iban' => strtoupper(preg_replace('/\s+/', '', (string) ($extracted['supplier_iban'] ?? $bank['iban'] ?? $extracted['iban'] ?? ''))),
+		'bic' => strtoupper(trim((string) ($extracted['supplier_bic'] ?? $bank['bic'] ?? $extracted['bic'] ?? ''))),
+		'account_name' => trim((string) ($extracted['supplier_account_holder'] ?? $bank['account_holder'] ?? $extracted['account_name'] ?? '')),
+		'bank_name' => trim((string) ($bank['bank_name'] ?? '')),
+	);
 }
 
 /**
@@ -2510,6 +2948,9 @@ function auvorechnungsimport_find_duplicate_imports($db, $object, $extracted)
 	$sql = "SELECT rowid, ref, original_filename, extracted_data FROM ".MAIN_DB_PREFIX."auvorechnungsimport_importedinvoice";
 	$sql .= " WHERE rowid <> ".((int) $object->id)." AND entity IN (".getEntity('importedinvoice').")";
 	$sql .= " AND extracted_data LIKE '%".$db->escape($db->escapeforlike($needle))."%'";
+	// Show one useful representative when the same invoice has arrived multiple times:
+	// prefer an import already linked to its supplier invoice, otherwise the oldest record.
+	$sql .= " ORDER BY CASE WHEN fk_facture_fourn > 0 THEN 0 ELSE 1 END, date_creation ASC, rowid ASC";
 	$sql .= $db->plimit(20);
 	$out = array();
 	$resql = $db->query($sql);
@@ -2524,6 +2965,7 @@ function auvorechnungsimport_find_duplicate_imports($db, $object, $extracted)
 			continue;
 		}
 		$out[] = array('id' => (int) $o->rowid, 'ref' => $o->ref, 'filename' => $o->original_filename);
+		break;
 	}
 	return $out;
 }

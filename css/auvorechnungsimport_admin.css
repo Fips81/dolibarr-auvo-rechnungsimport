@@ -1,0 +1,5 @@
+.auvorechnungsimport-admin-radio-options{display:flex;align-items:center;flex-wrap:nowrap;white-space:nowrap;gap:14px}
+.auvorechnungsimport-admin-radio-options label{flex:0 0 auto;white-space:nowrap}
+.auvorechnungsimport-admin-alias-entry{display:flex;align-items:center;flex-wrap:nowrap;white-space:nowrap;gap:6px;margin-top:6px}
+.auvorechnungsimport-admin-alias-entry input{flex:0 1 400px}
+.auvorechnungsimport-admin-alias-entry .button{flex:0 0 auto}

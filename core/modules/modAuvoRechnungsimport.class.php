@@ -59,7 +59,12 @@ class modAuvoRechnungsimport extends DolibarrModules
 		$this->const = array(
 			array('AUVORECHNUNGSIMPORT_OCR_LANGS', 'chaine', 'deu+fra+eng', 'Sprachen fuer Tesseract-OCR (tesseract --list-langs fuer verfuegbare Codes)', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_OCR_MAXPAGES', 'int', '5', 'Maximale Seitenzahl fuer OCR bei gescannten PDFs (Positionen koennen ueber mehrere Seiten gehen)', 1, 'current', 0),
-			array('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER', 'int', '0', 'Unbekannten Lieferanten automatisch anlegen statt manuell nachzufragen', 1, 'current', 0),
+			array('AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER', 'int', '1', 'Neuanlage von Lieferanten und Bankkonten im Rechnungsimport erlauben', 1, 'current', 0),
+			array('AUVORECHNUNGSIMPORT_UPDATE_BUYPRICE_MODE', 'chaine', 'auto', 'Verhalten der Aktualisierung von Lieferantenpreisen und -referenzen: auto, allow oder deny', 1, 'current', 0),
+			array('AUVORECHNUNGSIMPORT_CREATE_ORDER_MODE', 'chaine', 'allow', 'Verhalten der zusätzlichen Lieferantenbestellung: auto, allow oder deny', 1, 'current', 0),
+			array('AUVORECHNUNGSIMPORT_ALLOW_RELEASE_ORDER_BUTTON', 'int', '1', 'Schaltfläche Rechnung anlegen und Bestellung freigeben anzeigen', 1, 'current', 0),
+			array('AUVORECHNUNGSIMPORT_ALLOW_DRAFT_TOTAL_MISMATCH', 'int', '0', 'Rechnungsentwurf trotz abweichender erkannter Summe erlauben', 1, 'current', 0),
+			array('AUVORECHNUNGSIMPORT_DELETE_BLOCKED_STATUSES', 'chaine', '', 'Status, für die das Löschen von Importen gesperrt ist', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_SPAM_HEADER', 'chaine', '', 'Optionaler Mail-Header zur manuellen Spam-Pruefung', 1, 'current', 0),
 			array('AUVORECHNUNGSIMPORT_SPAM_VALUE', 'chaine', '', 'Erwarteter Wert des Spam-Headers', 1, 'current', 0),
 		);
@@ -110,8 +115,9 @@ class modAuvoRechnungsimport extends DolibarrModules
 			'auvorechnungsimport_queued' => array('AuvoRechnungsimportStatusQueued', $list.'?search_status=4,0', 1103),
 			'auvorechnungsimport_spam' => array('AuvoRechnungsimportStatusSpamReview', $list.'?search_status=5', 1104),
 			'auvorechnungsimport_irrelevant' => array('AuvoRechnungsimportMenuIrrelevant', $list.'?search_status=6,7', 1105),
-			'auvorechnungsimport_error' => array('AuvoRechnungsimportStatusError', $list.'?search_status=9', 1106),
-			'auvorechnungsimport_imported' => array('AuvoRechnungsimportStatusImported', $list.'?search_status=2', 1107),
+			'auvorechnungsimport_rejected' => array('AuvoRechnungsimportStatusRejected', $list.'?search_status=8', 1106),
+			'auvorechnungsimport_error' => array('AuvoRechnungsimportStatusError', $list.'?search_status=9', 1107),
+			'auvorechnungsimport_imported' => array('AuvoRechnungsimportStatusImported', $list.'?search_status=2', 1108),
 		);
 		foreach ($left as $leftmenu => list($label, $url, $position)) {
 			$this->menu[] = array(

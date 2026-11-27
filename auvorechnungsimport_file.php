@@ -40,8 +40,25 @@ if ($id <= 0 || $object->fetch($id) <= 0 || empty($object->filepath)) {
 
 $fullpath = realpath(DOL_DATA_ROOT.'/auvorechnungsimport/'.$object->filepath);
 $basedir = realpath(DOL_DATA_ROOT.'/auvorechnungsimport');
-if ($fullpath === false || $basedir === false || strncmp($fullpath, $basedir, strlen($basedir)) !== 0 || !is_readable($fullpath)) {
+$basedirPrefix = $basedir !== false ? rtrim($basedir, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR : '';
+if ($fullpath === false || $basedir === false || strncmp($fullpath, $basedirPrefix, strlen($basedirPrefix)) !== 0 || !is_readable($fullpath)) {
 	accessforbidden('Not found');
+}
+
+// ?embeddedxml=1 downloads the Factur-X/ZUGFeRD XML stored inside a PDF.
+if (GETPOSTINT('embeddedxml') === 1) {
+	require_once __DIR__.'/core/lib/auvorechnungsimport.lib.php';
+	if (auvorechnungsimport_is_xml_file($fullpath)) accessforbidden('Not an embedded PDF invoice');
+	$xml = auvorechnungsimport_pdf_embedded_xml($fullpath);
+	if ($xml === null) accessforbidden('No embedded invoice XML');
+	$name = pathinfo($object->original_filename, PATHINFO_FILENAME).'.xml';
+	$name = dol_sanitizeFileName($name);
+	header('Content-Type: application/xml; charset=UTF-8');
+	header('Content-Disposition: attachment; filename="'.$name.'"');
+	header('X-Content-Type-Options: nosniff');
+	header('Content-Length: '.strlen($xml));
+	print $xml;
+	exit;
 }
 
 // ?att=n: file n embedded in the e-invoice (BG-24), decoded on the fly
