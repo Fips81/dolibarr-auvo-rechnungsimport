@@ -679,7 +679,7 @@ if ($action === 'confirmspam' && $user->hasRight('auvorechnungsimport', 'imports
 	$object->status = ImportedInvoice::STATUS_SPAM_CONFIRMED;
 	if ($object->update($user) > 0) {
 		setEventMessages($langs->trans('AuvoRechnungsimportSpamConfirmed'), null, 'mesgs');
-		header('Location: '.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1).'?search_status=6,7,8');
+		header('Location: '.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1).'?search_status=6,7');
 		exit;
 	}
 	setEventMessages($langs->trans('AuvoRechnungsimportSpamConfirmFailed'), $object->errors, 'errors');
@@ -710,7 +710,7 @@ if ($action === 'reject' && $user->hasRight('auvorechnungsimport', 'imports', 'w
 	$object->status = ImportedInvoice::STATUS_REJECTED;
 	if ($object->update($user) > 0) {
 		setEventMessages($langs->trans('AuvoRechnungsimportRejected'), null, 'mesgs');
-		header('Location: '.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1).'?search_status=6,7,8');
+		header('Location: '.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1).'?search_status=8');
 		exit;
 	}
 	setEventMessages($langs->trans('AuvoRechnungsimportRejectFailed'), $object->errors, 'errors');
@@ -744,7 +744,7 @@ if ($action === 'confirmduplicate' && $user->hasRight('auvorechnungsimport', 'im
 	$object->status = ImportedInvoice::STATUS_DUPLICATE;
 	if ($object->update($user) > 0) {
 		setEventMessages($langs->trans('AuvoRechnungsimportDuplicateConfirmed'), null, 'mesgs');
-		header('Location: '.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1).'?search_status=6,7,8');
+		header('Location: '.dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1).'?search_status=6,7');
 		exit;
 	}
 	setEventMessages($langs->trans('AuvoRechnungsimportDuplicateConfirmFailed'), $object->errors, 'errors');
@@ -776,7 +776,7 @@ $backStatus = array(
 	ImportedInvoice::STATUS_NEEDS_REVIEW => '1,3', ImportedInvoice::STATUS_MATCHED => '1,3',
 	ImportedInvoice::STATUS_QUEUED => '4,0', ImportedInvoice::STATUS_PROCESSING => '4,0',
 	ImportedInvoice::STATUS_SPAM_REVIEW => '5',
-	ImportedInvoice::STATUS_DUPLICATE => '6,7,8', ImportedInvoice::STATUS_SPAM_CONFIRMED => '6,7,8', ImportedInvoice::STATUS_REJECTED => '6,7,8',
+	ImportedInvoice::STATUS_DUPLICATE => '6,7', ImportedInvoice::STATUS_SPAM_CONFIRMED => '6,7', ImportedInvoice::STATUS_REJECTED => '8',
 	ImportedInvoice::STATUS_ERROR => '9', ImportedInvoice::STATUS_IMPORTED => '2',
 );
 $backUrl = dol_buildpath('/auvorechnungsimport/auvorechnungsimport_list.php', 1).(isset($backStatus[(int) $object->status]) ? '?search_status='.$backStatus[(int) $object->status] : '');

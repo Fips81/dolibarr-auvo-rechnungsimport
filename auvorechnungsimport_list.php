@@ -124,7 +124,8 @@ $views = array(
 	ImportedInvoice::STATUS_NEEDS_REVIEW.','.ImportedInvoice::STATUS_MATCHED => 'AuvoRechnungsimportFilterToReview',
 	ImportedInvoice::STATUS_QUEUED.','.ImportedInvoice::STATUS_PROCESSING => 'AuvoRechnungsimportStatusQueued',
 	(string) ImportedInvoice::STATUS_SPAM_REVIEW => 'AuvoRechnungsimportStatusSpamReview',
-	ImportedInvoice::STATUS_DUPLICATE.','.ImportedInvoice::STATUS_SPAM_CONFIRMED.','.ImportedInvoice::STATUS_REJECTED => 'AuvoRechnungsimportMenuIrrelevant',
+	ImportedInvoice::STATUS_DUPLICATE.','.ImportedInvoice::STATUS_SPAM_CONFIRMED => 'AuvoRechnungsimportMenuIrrelevant',
+	(string) ImportedInvoice::STATUS_REJECTED => 'AuvoRechnungsimportStatusRejected',
 	(string) ImportedInvoice::STATUS_ERROR => 'AuvoRechnungsimportStatusError',
 	(string) ImportedInvoice::STATUS_IMPORTED => 'AuvoRechnungsimportStatusImported',
 );

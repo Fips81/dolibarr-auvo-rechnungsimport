@@ -113,9 +113,10 @@ class modAuvoRechnungsimport extends DolibarrModules
 			'auvorechnungsimport_review' => array('AuvoRechnungsimportFilterToReview', $list.'?search_status=1,3', 1102),
 			'auvorechnungsimport_queued' => array('AuvoRechnungsimportStatusQueued', $list.'?search_status=4,0', 1103),
 			'auvorechnungsimport_spam' => array('AuvoRechnungsimportStatusSpamReview', $list.'?search_status=5', 1104),
-			'auvorechnungsimport_irrelevant' => array('AuvoRechnungsimportMenuIrrelevant', $list.'?search_status=6,7,8', 1105),
-			'auvorechnungsimport_error' => array('AuvoRechnungsimportStatusError', $list.'?search_status=9', 1106),
-			'auvorechnungsimport_imported' => array('AuvoRechnungsimportStatusImported', $list.'?search_status=2', 1107),
+			'auvorechnungsimport_irrelevant' => array('AuvoRechnungsimportMenuIrrelevant', $list.'?search_status=6,7', 1105),
+			'auvorechnungsimport_rejected' => array('AuvoRechnungsimportStatusRejected', $list.'?search_status=8', 1106),
+			'auvorechnungsimport_error' => array('AuvoRechnungsimportStatusError', $list.'?search_status=9', 1107),
+			'auvorechnungsimport_imported' => array('AuvoRechnungsimportStatusImported', $list.'?search_status=2', 1108),
 		);
 		foreach ($left as $leftmenu => list($label, $url, $position)) {
 			$this->menu[] = array(
