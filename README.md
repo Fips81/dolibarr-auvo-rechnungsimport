@@ -1,24 +1,34 @@
-# AuVo Rechnungsimport
+# AuVo Rechnungsimport – Dolibarr Supplier Invoice Import
 
 [![Neueste Version](https://img.shields.io/github/v/release/Fips81/dolibarr-auvo-rechnungsimport?label=version&sort=semver)](https://github.com/Fips81/dolibarr-auvo-rechnungsimport/releases/latest)
 
-**Eingangsrechnungen für Dolibarr**: Rechnung als PDF oder E-Rechnung als XML
-hochladen. Das Modul liest Lieferant, Rechnungsnummer, Datum, Beträge und
-Positionen, schlägt Lieferant und Artikel vor und legt nach deiner Prüfung
-daraus eine Lieferantenrechnung an.
+**Lieferantenrechnungen in Dolibarr importieren und prüfen:** PDF-Rechnungen,
+gescannte Belege sowie E-Rechnungen als XRechnung, ZUGFeRD oder Factur-X
+hochladen. Das Modul erkennt Rechnungs- und Lieferantendaten, schlägt passende
+Geschäftspartner und Produkte vor und erstellt die Lieferantenrechnung erst
+nach der Prüfung.
 
-- **E-Rechnungen exakt:** XRechnung (CII und UBL), Peppol BIS, ZUGFeRD /
-  Factur-X – als XML-Datei oder in der PDF eingebettet. Seit 2025 müssen
-  Unternehmen in Deutschland E-Rechnungen empfangen können.
+**AuVo Rechnungsimport** is an open-source Dolibarr supplier invoice import
+module. It supports incoming invoice review from PDF and OCR, plus structured
+e-invoice formats including XRechnung, ZUGFeRD and Factur-X. Review extracted
+supplier details, bank data and invoice lines in one UI before creating a
+Dolibarr supplier invoice.
+
+- **Strukturierte E-Rechnungen:** XRechnung (CII und UBL), Peppol BIS, ZUGFeRD /
+  Factur-X – als XML-Datei oder in der PDF eingebettet. XML-Daten werden nach
+  EN 16931 ausgelesen; das Modul ist kein Validator für die formale Konformität.
 - **Normale PDFs und Scans:** Textlayer der PDF, sonst Texterkennung (OCR)
   mit Tesseract – lokal auf dem Server.
-- **Lernt mit:** Artikelzuordnung pro Lieferant, Produktvarianten, Kosten- und
-  Weglass-Positionen werden gemerkt.
+- **Lernt mit:** Artikelzuordnung pro Lieferant, Produktvarianten sowie die
+  Behandlung von Kosten- und Weglass-Positionen werden gemerkt.
 - **Viele Rechnungen auf einmal:** Mehrfach-Upload, Analyse im Hintergrund,
   danach eine Rechnung nach der anderen prüfen.
 
 Gegenstück zu [AuVo E-Rechnung](https://github.com/Fips81/dolibarr-auvo-erechnung)
 (Ausgangsrechnungen als ZUGFeRD und XRechnung).
+
+**Suchbegriffe:** Dolibarr supplier invoice import, incoming invoice review,
+accounts payable, PDF invoice OCR, XRechnung, ZUGFeRD, Factur-X, Peppol BIS.
 
 ## Motivation und UX-Prinzip
 
@@ -112,8 +122,9 @@ Moduleinstellungen kann optional ein Spam-Header mit erwartetem Wert
 konfiguriert werden. Passende Anhänge werden vor der Analyse zur Prüfung
 zurückgehalten und können freigegeben oder als Spam bestätigt werden.
 Vorhandene Hinweise auf gleiche Rechnungsnummer und gleichen Betrag können auf
-der Importkarte als Duplikat bestätigt werden. Bestätigte Importe bleiben in
-der Ansicht **Spam & Duplikate** verfügbar.
+der Importkarte als Duplikat bestätigt werden. Bestätigte Spam-Eingänge und
+Duplikate erscheinen unter **Spam & Duplikate**; fachlich zurückgewiesene
+Importe haben einen eigenen Menüpunkt **Zurückgewiesen**.
 
 Danach gibt es im Hauptmenü den Eintrag **Eingangsrechnungen**.
 
@@ -283,14 +294,13 @@ einmal):
   Preiszeile aktualisiert bzw. angelegt; Staffelpreise bleiben unberührt.
 - Positionen werden **nur nach Prüfung** im Formular angelegt. Weicht die Summe
   vom Rechnungsbetrag ab, gibt es eine Warnung.
-- **Unbekannte Lieferanten** lassen sich bei E-Rechnungen (XML, ZUGFeRD) aus den
-  Verkäuferdaten neu anlegen: Im Prüfformular erscheint die Checkbox „Lieferant
-  neu anlegen“ (Name, Adresse, Land, USt-ID, Steuernummer bzw. SIREN, E-Mail,
-  Telefon). Vorher wird noch einmal nach einem vorhandenen Lieferanten gesucht,
-  damit nichts doppelt entsteht. Die Einstellung `AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER`
-  wählt die Checkbox vor. Angelegt wird immer erst beim Absenden des Formulars
-  (Recht „Dritte anlegen“ nötig). Bei Text-/OCR-Importen und Gutschriften
-  gibt es das nicht – die Daten sind dort zu unsicher.
+- **Unbekannte Lieferanten** können anhand erkannter XML-, PDF-Text- oder
+  OCR-Daten vorgeschlagen und nach Prüfung angelegt werden. Die Review-Maske
+  zeigt die erkannten Stammdaten; vor dem Anlegen wird erneut nach einem
+  vorhandenen Geschäftspartner gesucht. Die globale Einstellung
+  `AUVORECHNUNGSIMPORT_AUTOCREATE_SUPPLIER` erlaubt oder sperrt die Neuanlage
+  von Lieferanten und Bankkonten. Zusätzlich ist die Dolibarr-Berechtigung zum
+  Anlegen von Geschäftspartnern erforderlich.
 - **Mehrfach-Upload mit Hintergrundanalyse**: Beliebig viele PDFs und XML-Dateien
   auf einmal hochladen (Server-Grenzen `max_file_uploads`, `upload_max_filesize`,
   `post_max_size` werden im Formular angezeigt). Die Dateien werden nur
@@ -312,10 +322,77 @@ einmal):
   Rechnungslayout ab – deshalb immer ein Prüfschritt vor dem Anlegen der
   Lieferantenrechnung.
 
-## Datenschutz
+## Datenschutz und Grenzen
 
-Rechnungen verlassen den Server nicht: Lesen, Texterkennung und Zuordnung
-laufen vollständig lokal, ohne Cloud-Dienst oder externe API.
+PDF-/XML-Auswertung, OCR und Lieferantenzuordnung laufen lokal auf dem
+Dolibarr-Server; Rechnungsdateien werden dafür nicht an einen Cloud-OCR- oder
+KI-Dienst übertragen. Wenn eine deutsche IBAN erkannt wird, kann das Modul
+optional die Bank anhand der BLZ über einen externen Bankdaten-Webservice
+ermitteln (`fintechtoolbox.com`). Dabei wird die BLZ abgefragt, nicht der
+Rechnungsinhalt. Diese Anreicherung ist unverbindlich und kann fehlschlagen.
+
+Erkennungsergebnisse sind Vorschläge und müssen geprüft werden. Das Modul ist
+weder ein Steuerberater noch ein Validator für die formale E-Rechnungskonformität
+und zertifiziert keine GoBD- oder DSGVO-Konformität. Die Verantwortung für
+Prüfung, Buchung und Aufbewahrung bleibt beim betreibenden Unternehmen.
+
+## FAQ – Häufige Fragen
+
+### Welche Rechnungsformate werden unterstützt?
+
+PDF-Dateien mit digitalem Text oder Scan sowie XML-E-Rechnungen. Unterstützt
+werden unter anderem XRechnung (CII und UBL), Peppol BIS Billing und
+ZUGFeRD/Factur-X, einschließlich eingebettetem XML in PDF-Dateien.
+
+### Funktioniert die Erkennung bei gescannten Rechnungen?
+
+Ja. Für PDFs ohne Textschicht kann das Modul OCR mit Tesseract und Poppler
+verwenden. Diese Programme müssen auf dem Server installiert sein; die
+Texterkennung läuft lokal. OCR-Ergebnisse können unvollständig sein und müssen
+in der Review-Ansicht geprüft werden.
+
+### Wird die Lieferantenrechnung automatisch gebucht?
+
+Nein. Erkannte Lieferanten-, Rechnungs- und Positionsdaten werden zunächst zur
+Prüfung angezeigt. Erst eine Person löst die Anlage aus. Je nach gewählter
+Aktion entsteht eine Lieferantenrechnung als Entwurf; eine optionale Aktion kann
+zusätzlich eine Lieferantenbestellung anlegen und freigeben. Eine Zahlung wird
+dabei nicht gebucht.
+
+### Kann das Modul einen neuen Lieferanten aus einer Rechnung anlegen?
+
+Ja. Erkannte Daten aus E-Rechnungs-XML, PDF-Text und OCR können in der
+Review-Ansicht geprüft und für eine Neuanlage verwendet werden. Die globale
+Moduleinstellung und die Dolibarr-Berechtigung zum Anlegen von Geschäftspartnern
+müssen dies erlauben. Für deutsche Lieferanten muss eine USt-ID oder
+Steuernummer vorliegen.
+
+### Lernt das Modul aus meinen Korrekturen?
+
+Ja. Die Zuordnung von Rechnungspositionen zu Produkten wird pro Lieferant
+gespeichert und bei passenden späteren Rechnungen wieder vorgeschlagen. Auch
+Produktvarianten sowie die Behandlung als Kosten- oder Weglass-Position können
+gelernt werden. Vorschläge bleiben überprüfbar.
+
+### Wie werden Duplikate erkannt?
+
+Das Modul weist auf bereits importierte Rechnungen mit gleicher
+Lieferanten-Rechnungsnummer und gleichem Betrag hin; bekannte, abweichende
+USt-IDs werden dabei berücksichtigt. Ein identischer PDF-Datei-Hash-Abgleich
+und die Suche in Dolibarrs ECM sind derzeit noch nicht implementiert.
+
+### Werden Rechnungsdaten an externe KI- oder OCR-Dienste gesendet?
+
+Nein. PDF-/XML-Auswertung, OCR und Lieferantenzuordnung erfolgen lokal auf dem
+Dolibarr-Server. Für eine optionale Bankdaten-Anreicherung kann die BLZ einer
+deutschen IBAN an `fintechtoolbox.com` übermittelt werden; der Rechnungsinhalt
+wird dafür nicht übertragen.
+
+### Ist das Modul ein GoBD-Archiv oder ein Steuer-/E-Rechnungsvalidator?
+
+Nein. Das Modul unterstützt den Import und die Prüfung, ersetzt aber weder ein
+Archivierungs- und Aufbewahrungskonzept noch eine steuerliche Prüfung oder den
+formalen Validator für E-Rechnungen.
 
 ## Tests
 
@@ -346,6 +423,15 @@ jedes Modul bleibt einzeln installier- und entfernbar.
 
 ### 0.4.0 (in Arbeit)
 
+- Neu: Lieferantenrechnungsprüfung mit Stammdaten-, Bankdaten- und
+  Positionsbearbeitung in einer Review-Ansicht; neue Lieferanten können nach
+  Prüfung auch aus PDF-Text und OCR angelegt werden.
+- Neu: Rechnung speichern, als Entwurf anlegen oder – wenn erlaubt – zusammen
+  mit einer Lieferantenbestellung anlegen und diese freigeben.
+- Neu: Zurückweisungen mit eigenem Status und Menüpunkt; Spam und Duplikate
+  bleiben in einer separaten Liste.
+- Neu: Administrierbare Regeln für Lieferanten-/Bankkontoanlage,
+  Bestellaktionen und Löschsperren nach Status.
 - Neu: Kopfdaten aus der E-Rechnung werden in die Lieferantenrechnung übernommen
   (Fälligkeit, Zahlungsart, Zahlungsbedingung, Referenzen und Leistungszeitraum
   als Notiz); IBAN optional als Bankkonto des Lieferanten.
