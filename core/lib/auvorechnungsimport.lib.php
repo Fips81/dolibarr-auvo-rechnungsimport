@@ -201,6 +201,7 @@ function auvorechnungsimport_parse_fields($text)
 		'supplier_email' => '',
 		'supplier_phone' => '',
 		'supplier_vat' => '',
+		'supplier_tax_id' => '',
 		'iban' => '',
 		'bic' => '',
 		'invoice_ref' => '',
@@ -224,14 +225,13 @@ function auvorechnungsimport_parse_fields($text)
 	// whichever label happens to come first in the text, which is often the wrong one.
 	$vatLabels = 'USt[.\s-]*Ident(?:ifikations)?[.\s-]*Nr\.?|USt-?IdNr\.?|UStIdNr\.?|Umsatzsteuer-?Identifikationsnummer|Umsatzsteuer-?ID(?:Nr\.?)?|Id[.\s]*-?Nr\.?|UID|VAT[ -]?(?:ID|No\.?|Reg(?:istration)?\.?\s*No\.?)?|TVA(?:\s*intracommunautaire)?|N°?\s*TVA';
 	$taxRefLabels = 'Steuernummer|Steuer-?Nr\.?|SIRET|SIREN';
-	foreach (array($vatLabels, $taxRefLabels) as $labels) {
-		if (preg_match('/(?:'.$labels.')[ \t]*[:.]?[ \t]*([A-Z]{0,2}[ \t]?[0-9][0-9 \t\/]{3,18})/iu', $text, $m)) {
-			$candidate = auvorechnungsimport_normalize_vat(trim($m[1]));
-			if (preg_match('/\d{5,}/', $candidate)) {
-				$result['supplier_vat'] = $candidate;
-				break;
-			}
-		}
+	if (preg_match('/(?:'.$vatLabels.')[ \t]*[:.]?[ \t]*([A-Z]{0,2}[ \t]?[0-9][0-9 \t\/]{3,18})/iu', $text, $m)) {
+		$candidate = auvorechnungsimport_normalize_vat(trim($m[1]));
+		if (preg_match('/\d{5,}/', $candidate)) $result['supplier_vat'] = $candidate;
+	}
+	if (preg_match('/(?:'.$taxRefLabels.')[ \t]*[:.]?[ \t]*([A-Z]{0,2}[ \t]?[0-9][0-9 \t\/]{3,18})/iu', $text, $m)) {
+		$candidate = trim(preg_replace('/\s+/', ' ', $m[1]));
+		if (preg_match('/\d{5,}/', $candidate)) $result['supplier_tax_id'] = $candidate;
 	}
 
 	// Contact details are often printed in the sender's letterhead rather than
@@ -318,10 +318,12 @@ function auvorechnungsimport_parse_fields($text)
 	$separator = '(?:\s+-\s+|[\x{2022}\x{25CF}\x{F0B7}\x{F0DF}\x{F09F}|])';
 	$streetOrBox = '(?:Postfach\s+[\p{L}\d][\p{L}\d \/-]*|P\.?\s*O\.?\s*Box\s*[\p{L}\d][\p{L}\d \/-]*|.+?\s+\d+\s*[a-zA-Z]?(?:\s*[-\/]\s*\d+\s*[a-zA-Z]?)?)';
 	$senderPattern = '/^\s*(?<name>.+?)\s*'.$separator.'\s*(?<address>'.$streetOrBox.')\s*'.$separator.'\s*(?<postcode>\d{5})\s+(?<city>.+?)\s*$/iu';
+	$senderNameQualifiers = array('Firmensitz:', 'Filiale:');
+	$senderQualifierPattern = '/^\s*(?:'.implode('|', array_map('preg_quote', $senderNameQualifiers)).')\s*/iu';
 	$structuredSenderName = '';
 	foreach ($candidateLines as $line) {
 		if (preg_match($senderPattern, $line, $m)) {
-			$structuredSenderName = trim($m['name']);
+			$structuredSenderName = trim(preg_replace($senderQualifierPattern, '', $m['name']));
 			$result['supplier_address'] = array(
 				'line1' => trim($m['address']),
 				'postcode' => trim($m['postcode']),
@@ -335,8 +337,9 @@ function auvorechnungsimport_parse_fields($text)
 	$legalNameCandidate = '';
 	$legalFormPattern = '/\b(?:GmbH\s*&\s*Co\.?\s*KG|GmbH|AG|KGaA|KG|OHG|e\.?K\.?|UG(?:\s*\(haftungsbeschränkt\))?|SARL|SASU|SAS|SA|Ltd\.?|Inc\.?|LLC)\b/iu';
 	foreach ($candidateLines as $line) {
-		if (preg_match($legalFormPattern, $line, $m, PREG_OFFSET_CAPTURE)) {
-			$legalNameCandidate = trim(substr($line, 0, $m[0][1] + strlen($m[0][0])));
+		$nameLine = preg_replace($senderQualifierPattern, '', $line);
+		if (preg_match($legalFormPattern, $nameLine, $m, PREG_OFFSET_CAPTURE)) {
+			$legalNameCandidate = trim(substr($nameLine, 0, $m[0][1] + strlen($m[0][0])));
 			break;
 		}
 	}
@@ -360,7 +363,7 @@ function auvorechnungsimport_parse_fields($text)
 		$result['supplier_name_confident'] = true;
 	}
 	if (empty($result['supplier_name']) && !empty($candidateLines)) {
-		$result['supplier_name'] = $candidateLines[0];
+		$result['supplier_name'] = preg_replace($senderQualifierPattern, '', $candidateLines[0]);
 	}
 
 	return $result;
