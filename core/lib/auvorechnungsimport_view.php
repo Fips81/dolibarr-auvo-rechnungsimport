@@ -105,7 +105,7 @@ function auvorechnungsimport_render_einvoice($inv, $attUrl = '')
 
 	$html = '<div class="auvorechnungsimport-einvoice">';
 	$title = auvorechnungsimport_code_label('type', $doc['type_code']).' '.$e($doc['id']);
-	$html .= '<h3 style="margin:6px 0 10px;">'.$title.'</h3>';
+	$html .= '<h3 class="auvorechnungsimport-einvoice-title">'.$title.'</h3>';
 	if (!empty($doc['is_credit_note'])) {
 		$html .= '<div class="warning">'.$langs->trans('AuvoRechnungsimportIsCreditNote').'</div>';
 	}
@@ -158,11 +158,11 @@ function auvorechnungsimport_render_einvoice($inv, $attUrl = '')
 		}
 		return $h.'</table>';
 	};
-	$html .= '<div class="fichecenter" style="margin-top:10px;"><div class="fichehalfleft">'.$party($inv['seller'], $langs->trans('AuvoRechnungsimportViewSeller')).'</div>';
+	$html .= '<div class="fichecenter auvorechnungsimport-einvoice-parties"><div class="fichehalfleft">'.$party($inv['seller'], $langs->trans('AuvoRechnungsimportViewSeller')).'</div>';
 	$html .= '<div class="fichehalfright">'.$party($inv['buyer'], $langs->trans('AuvoRechnungsimportViewBuyer')).'</div></div><div class="clearboth"></div>';
 
 	// Lines
-	$html .= '<div class="div-table-responsive-no-min" style="margin-top:10px;"><table class="noborder centpercent">';
+	$html .= '<div class="div-table-responsive-no-min auvorechnungsimport-einvoice-lines"><table class="noborder centpercent">';
 	$html .= '<tr class="liste_titre"><td>#</td><td>'.$langs->trans('Description').'</td><td class="right">'.$langs->trans('Qty').'</td><td>'.$langs->trans('AuvoRechnungsimportViewUnit').'</td>';
 	$html .= '<td class="right">'.$langs->trans('PriceUHT').'</td><td class="right">'.$langs->trans('VAT').'</td><td class="right">'.$langs->trans('TotalHT').'</td></tr>';
 	foreach ($inv['lines'] as $l) {
@@ -193,7 +193,7 @@ function auvorechnungsimport_render_einvoice($inv, $attUrl = '')
 
 	// VAT breakdown and totals
 	$t = $inv['totals'];
-	$html .= '<div class="fichecenter" style="margin-top:10px;"><div class="fichehalfleft"><table class="noborder centpercent">';
+	$html .= '<div class="fichecenter auvorechnungsimport-einvoice-totals"><div class="fichehalfleft"><table class="noborder centpercent">';
 	$html .= '<tr class="liste_titre"><td>'.$langs->trans('AuvoRechnungsimportViewVatCategory').'</td><td class="right">'.$langs->trans('AuvoRechnungsimportViewVatBasis').'</td><td class="right">'.$langs->trans('VAT').'</td></tr>';
 	foreach ($inv['vat_breakdown'] as $v) {
 		$cat = auvorechnungsimport_code_label('vat', $v['category']).($v['rate'] !== null ? ' '.price($v['rate'], 0, '', 1, -1, -1).' %' : '');
@@ -216,7 +216,7 @@ function auvorechnungsimport_render_einvoice($inv, $attUrl = '')
 
 	// Payment
 	$pay = $inv['payment'];
-	$html .= '<table class="border centpercent tableforfield" style="margin-top:10px;"><tr class="liste_titre"><td colspan="2">'.$langs->trans('AuvoRechnungsimportViewPayment').'</td></tr>';
+	$html .= '<table class="border centpercent tableforfield auvorechnungsimport-einvoice-section"><tr class="liste_titre"><td colspan="2">'.$langs->trans('AuvoRechnungsimportViewPayment').'</td></tr>';
 	foreach ($pay['means'] as $pm) {
 		$v = $e(auvorechnungsimport_code_label('means', $pm['code']));
 		if ($pm['iban'] !== '') {
@@ -236,7 +236,7 @@ function auvorechnungsimport_render_einvoice($inv, $attUrl = '')
 
 	// Delivery
 	if ($inv['delivery']['name'] !== '' || !empty($inv['delivery']['address'])) {
-		$html .= '<table class="border centpercent tableforfield" style="margin-top:10px;"><tr class="liste_titre"><td colspan="2">'.$langs->trans('AuvoRechnungsimportViewDelivery').'</td></tr>';
+		$html .= '<table class="border centpercent tableforfield auvorechnungsimport-einvoice-section"><tr class="liste_titre"><td colspan="2">'.$langs->trans('AuvoRechnungsimportViewDelivery').'</td></tr>';
 		$html .= $row($langs->trans('Name'), $e($inv['delivery']['name']));
 		$html .= $row($langs->trans('Address'), auvorechnungsimport_render_address($inv['delivery']['address']));
 		$html .= '</table>';
@@ -244,7 +244,7 @@ function auvorechnungsimport_render_einvoice($inv, $attUrl = '')
 
 	// Notes
 	if (!empty($doc['notes'])) {
-		$html .= '<table class="border centpercent tableforfield" style="margin-top:10px;"><tr class="liste_titre"><td colspan="2">'.$langs->trans('AuvoRechnungsimportViewNotes').'</td></tr>';
+		$html .= '<table class="border centpercent tableforfield auvorechnungsimport-einvoice-section"><tr class="liste_titre"><td colspan="2">'.$langs->trans('AuvoRechnungsimportViewNotes').'</td></tr>';
 		foreach ($doc['notes'] as $n) {
 			$html .= '<tr><td class="titlefield opacitymedium">'.$e($n['subject']).'</td><td>'.nl2br($e($n['content'])).'</td></tr>';
 		}
@@ -253,7 +253,7 @@ function auvorechnungsimport_render_einvoice($inv, $attUrl = '')
 
 	// Attachments
 	if (!empty($inv['attachments'])) {
-		$html .= '<table class="border centpercent tableforfield" style="margin-top:10px;"><tr class="liste_titre"><td colspan="2">'.$langs->trans('AuvoRechnungsimportViewAttachments').'</td></tr>';
+		$html .= '<table class="border centpercent tableforfield auvorechnungsimport-einvoice-section"><tr class="liste_titre"><td colspan="2">'.$langs->trans('AuvoRechnungsimportViewAttachments').'</td></tr>';
 		foreach ($inv['attachments'] as $i => $a) {
 			$name = $a['name'] !== '' ? $a['name'] : $a['id'];
 			if ($a['content'] !== '' && $attUrl !== '') {

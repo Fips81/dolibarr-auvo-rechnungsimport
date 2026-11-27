@@ -86,6 +86,7 @@ function auvorechnungsimport_xpath_helpers($xp)
 
 /**
  * CII date (format 102 = CCYYMMDD) to Y-m-d.
+ * This is the shared date parser; keep text extraction callers on this helper
  *
  * @param string $raw
  * @return string

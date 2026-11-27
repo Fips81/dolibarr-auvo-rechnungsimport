@@ -31,6 +31,7 @@ class ImportedInvoice extends CommonObject
 	const STATUS_SPAM_REVIEW = 5;
 	const STATUS_DUPLICATE = 6;
 	const STATUS_SPAM_CONFIRMED = 7;
+	const STATUS_REJECTED = 8;
 	const STATUS_ERROR = 9;
 
 	public $fields = array(
@@ -46,6 +47,7 @@ class ImportedInvoice extends CommonObject
 			self::STATUS_SPAM_REVIEW => 'AuvoRechnungsimportStatusSpamReview',
 			self::STATUS_DUPLICATE => 'AuvoRechnungsimportStatusDuplicate',
 			self::STATUS_SPAM_CONFIRMED => 'AuvoRechnungsimportStatusSpamConfirmed',
+			self::STATUS_REJECTED => 'AuvoRechnungsimportStatusRejected',
 			self::STATUS_PROCESSING => 'AuvoRechnungsimportStatusProcessing',
 			self::STATUS_NEEDS_REVIEW => 'AuvoRechnungsimportStatusNeedsReview',
 			self::STATUS_MATCHED => 'AuvoRechnungsimportStatusMatched',
@@ -131,6 +133,20 @@ class ImportedInvoice extends CommonObject
 	 */
 	public function delete(User $user, $notrigger = 0)
 	{
+		global $langs;
+
+		// Enforce the admin's status restriction here as well as in the card UI,
+		// so any server-side caller of delete() gets the same protection.
+		if ($this->status === null && !empty($this->id)) {
+			$this->fetch($this->id);
+		}
+		$blockedStatuses = array_map('intval', array_filter(explode(',', getDolGlobalString('AUVORECHNUNGSIMPORT_DELETE_BLOCKED_STATUSES')), 'strlen'));
+		if (in_array((int) $this->status, $blockedStatuses, true)) {
+			$this->error = $langs ? $langs->trans('AuvoRechnungsimportDeleteBlocked') : 'Deletion is blocked for this import status';
+			$this->errors[] = $this->error;
+			return -1;
+		}
+
 		return $this->deleteCommon($user, $notrigger);
 	}
 
@@ -203,6 +219,7 @@ class ImportedInvoice extends CommonObject
 			self::STATUS_SPAM_REVIEW => $langs->trans('AuvoRechnungsimportStatusSpamReview'),
 			self::STATUS_DUPLICATE => $langs->trans('AuvoRechnungsimportStatusDuplicate'),
 			self::STATUS_SPAM_CONFIRMED => $langs->trans('AuvoRechnungsimportStatusSpamConfirmed'),
+			self::STATUS_REJECTED => $langs->trans('AuvoRechnungsimportStatusRejected'),
 			self::STATUS_PROCESSING => $langs->trans('AuvoRechnungsimportStatusProcessing'),
 			self::STATUS_NEEDS_REVIEW => $langs->trans('AuvoRechnungsimportStatusNeedsReview'),
 			self::STATUS_MATCHED => $langs->trans('AuvoRechnungsimportStatusMatched'),
@@ -218,6 +235,7 @@ class ImportedInvoice extends CommonObject
 			self::STATUS_SPAM_REVIEW => 'status8',
 			self::STATUS_DUPLICATE => 'status4',
 			self::STATUS_SPAM_CONFIRMED => 'status4',
+			self::STATUS_REJECTED => 'status8',
 			self::STATUS_PROCESSING => 'status3',
 			self::STATUS_NEEDS_REVIEW => 'status1',
 			self::STATUS_MATCHED => 'status2',

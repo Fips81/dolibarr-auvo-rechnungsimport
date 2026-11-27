@@ -20,6 +20,42 @@ daraus eine Lieferantenrechnung an.
 Gegenstück zu [AuVo E-Rechnung](https://github.com/Fips81/dolibarr-auvo-erechnung)
 (Ausgangsrechnungen als ZUGFeRD und XRechnung).
 
+## Motivation und UX-Prinzip
+
+Wer regelmäßig Eingangsrechnungen prüft, soll diesen Ablauf möglichst vollständig
+auf **einer Review-Seite** erledigen können. Ziel ist, dass die prüfende Person
+erkannte Daten kontrolliert, fehlende Angaben ergänzt und die vorgesehenen
+Aktionen ausführt, ohne dafür durch mehrere Dolibarr-Karten, Entwurfsansichten
+und Stammdatenmasken springen zu müssen.
+
+Das spart viele kleine Arbeitsschritte, zum Beispiel:
+
+- Lieferant, Rechnungsnummer, Datum und erkannte Rechnungsdaten direkt im Review
+  prüfen und korrigieren.
+- Lieferantenstammdaten und Bankdaten dort ergänzen oder einen neuen Lieferanten
+  beziehungsweise ein Bankkonto anlegen. Bei einer deutschen IBAN kann die
+  Bank anhand der BLZ vorgeschlagen werden.
+- Positionen, Artikelzuordnung, Preise und Summen gemeinsam kontrollieren,
+  ergänzen und korrigieren.
+- Die Lieferantenrechnung erstellen und – wenn gewünscht und erlaubt – die
+  zugehörige Lieferantenbestellung im selben Ablauf anlegen oder freigeben.
+
+Für diese einfache Bedienung nimmt das Modul bewusst in Kauf, Teile der
+Dolibarr-Eingabemasken und der dazugehörigen Prüfregeln in der Review-Oberfläche
+abzubilden. Das kann ähnliche Felder oder Prüfungen an mehreren Stellen
+bedeuten. Die eigentlichen Geschäftsvorgänge sollen, soweit möglich, weiterhin
+über Dolibarr-Klassen und deren Methoden laufen; die zusätzliche Oberfläche
+führt die dafür nötigen Angaben und Aktionen jedoch an einem Ort zusammen.
+
+**Leitlinie für Wartung und Weiterentwicklung:** Eine Änderung soll nicht
+allein deshalb auf einen anderen Dolibarr-Bildschirm verweisen, weil es dort
+bereits eine Standardmaske oder ähnliche Geschäftslogik gibt. Wenn ein
+zusätzlicher Schritt für den Review nötig ist, darf das Modul die passende
+Eingabe und Prüfung bewusst in seiner Review-Seite bereitstellen. Komfort darf
+dabei die Sicherheits- und Buchungsprüfungen nicht umgehen: wichtige Regeln
+müssen serverseitig gelten; clientseitige Prüfungen dienen zusätzlich der
+direkten Rückmeldung.
+
 > AuVo Rechnungsimport ist ein unabhängiges Modul für Dolibarr und kein
 > offizielles Produkt der Dolibarr Foundation, der KoSIT oder des FeRD.
 > ZUGFeRD, Factur-X, XRechnung, Peppol und Dolibarr sind Namen bzw. Marken
@@ -60,8 +96,8 @@ Wenn das Dolibarr-Modul **E-Mail-Sammler** aktiviert ist, füge bei den
 Aktionen eines Sammlers **In Rechnungsimport übernehmen** hinzu. Dadurch werden
 nicht leere PDF- und XML-Anhänge als Rechnungsimporte eingereiht. Das Modul
 startet seinen vorhandenen Hintergrundprozess, nachdem der Sammler seine
-Datenbanktransaktion abgeschlossen hat. Das Cron-Modul und BlockedLog sind
-nicht erforderlich. Kann der Prozess nicht gestartet werden, bleiben die
+Datenbanktransaktion abgeschlossen hat. Das Cron-Modul ist dafür nicht
+erforderlich. Kann der Prozess nicht gestartet werden, bleiben die
 Anhänge in der Warteschlange und der Fehler wird im Dolibarr-Log vermerkt.
 Nach dem Update auf diese Version AuVo Rechnungsimport einmal deaktivieren und
 wieder aktivieren, damit Dolibarr den Hook registriert und die neue Spalte
